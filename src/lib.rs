@@ -16,7 +16,10 @@ pub enum ItemKind {
     Type,
 }
 // TODO: Make ExprId a 32-bit integer
+// TODO: Make ExprId and ArgId newtypes instead of type aliases
 pub type ExprId = usize;
+pub type ArgsId = usize;
+
 pub const MAX_FN_ARGS: usize = 3;
 
 #[derive(Debug)]
@@ -34,7 +37,7 @@ pub enum ExprKind<'a> {
     /// `()`
     Unit,
     /// Evaluation operator (e.g. `foo()`, `Bar(1, 2)`)
-    Eval(ExprId, [Option<ExprId>; MAX_FN_ARGS]),
+    Eval(ExprId, ArgsId),
 }
 #[derive(Debug)]
 pub enum Operator {
@@ -78,12 +81,14 @@ fn parse_typedecl_rhs_keyword(_: &mut Lexer<'_>, k: Keyword) {
 struct Parser<'a> {
     lexer: Lexer<'a>,
     exprs: Vec<Expr<'a>>,
+    args: Vec<[Option<ExprId>; MAX_FN_ARGS]>,
 }
 impl<'a> Parser<'a> {
     fn new(s: &'a str) -> Self {
         Self {
             lexer: Lexer::new(s),
             exprs: vec![],
+            args: vec![],
         }
     }
     fn parse(&mut self) {
@@ -139,7 +144,7 @@ impl<'a> Parser<'a> {
                         .expect("convert ident to utf-8"),
                 ),
             }),
-            t => panic!("unsupported token: {t:?}"),
+            t => panic!("expected expression, found `{t:?}`"),
         };
         // Operator Position
         // Pratt-Parsing loop. Peeks and consumes operators.
@@ -167,7 +172,7 @@ impl<'a> Parser<'a> {
                     self.lexer.next_token();
                     lhs_id = self.parse_eval(lhs_id).expect("parse eval");
                 }
-                other => panic!("unsupported operator: {other:?}"),
+                other => panic!("expected operator, found `{other:?}`"),
             };
         }
 
@@ -218,9 +223,12 @@ impl<'a> Parser<'a> {
             }
         }
 
+        // TODO: Make ARGS a slice
+        let args_id = self.push_args(args);
+
         match cursor.kind {
             TokenKind::ParensClose => Some(self.push_expr(Expr {
-                kind: ExprKind::Eval(caller, args),
+                kind: ExprKind::Eval(caller, args_id),
             })),
             t => panic!("wrong eval expression termination token: {t:?}"),
         }
@@ -257,6 +265,10 @@ impl<'a> Parser<'a> {
         self.exprs.push(expr);
         self.exprs.len() - 1
     }
+    fn push_args(&mut self, args: [Option<ExprId>; MAX_FN_ARGS]) -> ArgsId {
+        self.args.push(args);
+        self.args.len() - 1
+    }
     /// Pretty-print the AST
     fn pprint_ast(&mut self) {
         let current = self.exprs.last().expect("AST is empty");
@@ -281,7 +293,7 @@ impl<'a> Parser<'a> {
                 ExprKind::Unit => println!("()"),
                 ExprKind::Eval(caller, args) => {
                     println!("(eval: {:?})", self.exprs[caller]);
-                    args.iter().rev().for_each(|arg| {
+                    self.args[args].iter().rev().for_each(|arg| {
                         if let Some(id) = arg {
                             stack.push((&self.exprs[*id], depth + 3, true));
                         }
@@ -348,7 +360,7 @@ mod test {
 
     #[test]
     pub fn expr_fneval() {
-        let mut p = Parser::new("f(a, b, c + 32)");
+        let mut p = Parser::new("f(a, b, c, d)");
         p.parse();
         p.pprint_ast();
     }
