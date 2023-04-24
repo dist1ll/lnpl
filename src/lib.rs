@@ -17,6 +17,7 @@ pub enum ItemKind {
 }
 // TODO: Make ExprId a 32-bit integer
 pub type ExprId = usize;
+pub const MAX_FN_ARGS: usize = 3;
 
 #[derive(Debug)]
 pub struct Expr<'a> {
@@ -33,7 +34,7 @@ pub enum ExprKind<'a> {
     /// `()`
     Unit,
     /// Evaluation operator (e.g. `foo()`, `Bar(1, 2)`)
-    Eval(ExprId, [Option<ExprId>; 3]),
+    Eval(ExprId, [Option<ExprId>; MAX_FN_ARGS]),
 }
 #[derive(Debug)]
 pub enum Operator {
@@ -93,10 +94,18 @@ impl<'a> Parser<'a> {
     }
     /// Type declaration via expression.
     fn parse_expr(&mut self, first: Token<'a>, min_bp: u8) -> Option<ExprId> {
+        // ignore leading whitespace
+        let first = if first.kind == TokenKind::Whitespace {
+            self.next_non_whitespace().expect("no expression found")
+        } else {
+            first
+        };
+
         // Ident position
         let mut lhs_id = match first.kind {
             TokenKind::ParensOpen => {
-                let next = self.eat_whitespace().expect("no close parens");
+                let next =
+                    self.next_non_whitespace().expect("no close parens");
                 match next.kind {
                     TokenKind::ParensClose => self.push_expr(Expr {
                         kind: ExprKind::Unit,
@@ -130,7 +139,7 @@ impl<'a> Parser<'a> {
                         .expect("convert ident to utf-8"),
                 ),
             }),
-            _ => panic!("unsupported token while parsing expression"),
+            t => panic!("unsupported token: {t:?}"),
         };
         // Operator Position
         // Pratt-Parsing loop. Peeks and consumes operators.
@@ -146,7 +155,7 @@ impl<'a> Parser<'a> {
                     self.lexer.next_token();
 
                     let next = self
-                        .eat_whitespace()
+                        .next_non_whitespace()
                         .expect("operator can't terminate expression");
                     let rhs_id = self.parse_expr(next, bp.1).unwrap();
                     lhs_id = self.push_expr(Expr {
@@ -172,30 +181,52 @@ impl<'a> Parser<'a> {
     ///   start here
     /// ```
     fn parse_eval(&mut self, caller: ExprId) -> Option<ExprId> {
-        let next =
-            self.eat_whitespace().expect("eval has closing parenthesis");
+        let mut cursor = self
+            .next_non_whitespace()
+            .expect("eval has closing parenthesis");
         // no arguments
-        if next.kind == TokenKind::ParensClose {
+        if cursor.kind == TokenKind::ParensClose {
             return Some(self.push_expr(Expr {
                 kind: ExprKind::Eval(caller, Default::default()),
             }));
         }
         // parse arguments
-        let inner = self
-            .parse_expr(next, 0)
-            .expect("eval operator was not finished");
-        let next = self
-            .lexer
-            .next_token()
-            .expect("matching closing parenthesis");
-        match next.kind {
+        let mut args: [Option<ExprId>; MAX_FN_ARGS] = Default::default();
+        let mut i = 0;
+
+        loop {
+            // first argument
+            args[i] = Some(
+                self.parse_expr(cursor, 0)
+                    .expect("eval operator was not finished"),
+            );
+
+            cursor = self
+                .lexer
+                .next_token()
+                .expect("matching closing parenthesis");
+
+            if cursor.kind == TokenKind::Comma {
+                // eat the ','
+                cursor = self.lexer.next_token().unwrap();
+                i += 1;
+                if i >= MAX_FN_ARGS {
+                    panic!("too many fn arguments. Maximum: {}", MAX_FN_ARGS);
+                }
+            } else {
+                break;
+            }
+        }
+
+        match cursor.kind {
             TokenKind::ParensClose => Some(self.push_expr(Expr {
-                kind: ExprKind::Eval(caller, [Some(inner), None, None]),
+                kind: ExprKind::Eval(caller, args),
             })),
             t => panic!("wrong eval expression termination token: {t:?}"),
         }
     }
-    fn eat_whitespace(&mut self) -> Option<Token<'a>> {
+    /// Advances to the next non-whitspace token
+    fn next_non_whitespace(&mut self) -> Option<Token<'a>> {
         while let Some(t) = self.lexer.next_token() {
             match t.kind {
                 TokenKind::Whitespace => continue,
@@ -250,7 +281,7 @@ impl<'a> Parser<'a> {
                 ExprKind::Unit => println!("()"),
                 ExprKind::Eval(caller, args) => {
                     println!("(eval: {:?})", self.exprs[caller]);
-                    args.iter().for_each(|arg| {
+                    args.iter().rev().for_each(|arg| {
                         if let Some(id) = arg {
                             stack.push((&self.exprs[*id], depth + 3, true));
                         }
@@ -317,7 +348,7 @@ mod test {
 
     #[test]
     pub fn expr_fneval() {
-        let mut p = Parser::new("f()");
+        let mut p = Parser::new("f(a, b, c + 32)");
         p.parse();
         p.pprint_ast();
     }

@@ -26,6 +26,7 @@ pub enum TokenKind {
     Minus,
     Star,
     Colon,
+    Comma,
     Semicolon,
     // ()
     ParensOpen,
@@ -149,6 +150,7 @@ impl<'a> Lexer<'a> {
             c if c.is_ascii_whitespace() => self.read_whitespace(),
             '0'..='9' => self.read_numeral(),
             ';' => TokenKind::Semicolon,
+            ',' => TokenKind::Comma,
             '(' => TokenKind::ParensOpen,
             ')' => TokenKind::ParensClose,
             '{' => TokenKind::BraceOpen,
