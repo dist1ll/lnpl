@@ -1,0 +1,16 @@
+[package]
+name = "lnpl"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "lnpl"
+doctest = false
+
+[[bin]]
+name = "main"
+test = false
+
+[[bin]]
+name = "perfhash"
+test = false
