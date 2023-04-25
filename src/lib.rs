@@ -20,7 +20,7 @@ pub enum ItemKind {
 pub type ExprId = usize;
 pub type ArgsId = usize;
 
-pub const MAX_FN_ARGS: usize = 3;
+pub const MAX_FN_ARGS: usize = 5;
 
 #[derive(Debug)]
 pub struct Expr<'a> {
@@ -37,7 +37,8 @@ pub enum ExprKind<'a> {
     /// `()`
     Unit,
     /// Evaluation operator (e.g. `foo()`, `Bar(1, 2)`)
-    Eval(ExprId, ArgsId),
+    /// TODO: Reduce size with bitpacking
+    Eval(ExprId, ArgsId, usize),
 }
 #[derive(Debug)]
 pub enum Operator {
@@ -81,7 +82,7 @@ fn parse_typedecl_rhs_keyword(_: &mut Lexer<'_>, k: Keyword) {
 struct Parser<'a> {
     lexer: Lexer<'a>,
     exprs: Vec<Expr<'a>>,
-    args: Vec<[Option<ExprId>; MAX_FN_ARGS]>,
+    args: Vec<ExprId>,
 }
 impl<'a> Parser<'a> {
     fn new(s: &'a str) -> Self {
@@ -192,19 +193,18 @@ impl<'a> Parser<'a> {
         // no arguments
         if cursor.kind == TokenKind::ParensClose {
             return Some(self.push_expr(Expr {
-                kind: ExprKind::Eval(caller, Default::default()),
+                kind: ExprKind::Eval(caller, Default::default(), 0),
             }));
         }
         // parse arguments
-        let mut args: [Option<ExprId>; MAX_FN_ARGS] = Default::default();
+        let mut args: [ExprId; MAX_FN_ARGS] = Default::default();
         let mut i = 0;
 
         loop {
             // first argument
-            args[i] = Some(
-                self.parse_expr(cursor, 0)
-                    .expect("eval operator was not finished"),
-            );
+            args[i] = self
+                .parse_expr(cursor, 0)
+                .expect("eval operator was not finished");
 
             cursor = self
                 .lexer
@@ -216,7 +216,7 @@ impl<'a> Parser<'a> {
                 cursor = self.lexer.next_token().unwrap();
                 i += 1;
                 if i >= MAX_FN_ARGS {
-                    panic!("too many fn arguments. Maximum: {}", MAX_FN_ARGS);
+                    panic!("too many fn arguments. Maximum: {MAX_FN_ARGS}");
                 }
             } else {
                 break;
@@ -224,11 +224,11 @@ impl<'a> Parser<'a> {
         }
 
         // TODO: Make ARGS a slice
-        let args_id = self.push_args(args);
+        let args_id = self.push_args(&args[0..(i + 1)]);
 
         match cursor.kind {
             TokenKind::ParensClose => Some(self.push_expr(Expr {
-                kind: ExprKind::Eval(caller, args_id),
+                kind: ExprKind::Eval(caller, args_id, i + 1),
             })),
             t => panic!("wrong eval expression termination token: {t:?}"),
         }
@@ -265,9 +265,10 @@ impl<'a> Parser<'a> {
         self.exprs.push(expr);
         self.exprs.len() - 1
     }
-    fn push_args(&mut self, args: [Option<ExprId>; MAX_FN_ARGS]) -> ArgsId {
-        self.args.push(args);
-        self.args.len() - 1
+    fn push_args(&mut self, args: &[ExprId]) -> ArgsId {
+        assert!(args.len() > 0, "can't push empty argument to arg stack");
+        self.args.extend_from_slice(args);
+        self.args.len() - args.len()
     }
     /// Pretty-print the AST
     fn pprint_ast(&mut self) {
@@ -291,13 +292,14 @@ impl<'a> Parser<'a> {
                 }
                 ExprKind::Ident(ref n) => println!("({n})"),
                 ExprKind::Unit => println!("()"),
-                ExprKind::Eval(caller, args) => {
+                ExprKind::Eval(caller, args_id, count) => {
                     println!("(eval: {:?})", self.exprs[caller]);
-                    self.args[args].iter().rev().for_each(|arg| {
-                        if let Some(id) = arg {
+                    self.args[args_id..(args_id + count)]
+                        .iter()
+                        .rev()
+                        .for_each(|id| {
                             stack.push((&self.exprs[*id], depth + 3, true));
-                        }
-                    });
+                        });
                 }
             };
         }
@@ -360,7 +362,7 @@ mod test {
 
     #[test]
     pub fn expr_fneval() {
-        let mut p = Parser::new("f(a, b, c, d)");
+        let mut p = Parser::new("f(a, b, c, 4)");
         p.parse();
         p.pprint_ast();
     }
