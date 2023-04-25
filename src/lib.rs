@@ -166,20 +166,19 @@ impl<'a> Parser<'a> {
     /// Parse parenthesized expression. Examples: `(1)`, `(x + y)`
     fn parse_expr_parens(&mut self) -> ExprId {
         let next = self.next_non_whitespace().expect("no close parens");
-        match next.kind {
-            TokenKind::ParensClose => self.push_expr(Expr {
+        // empty parentheses ()
+        if next.kind == TokenKind::ParensClose {
+            return self.push_expr(Expr {
                 kind: ExprKind::Unit,
-            }),
-            _ => {
-                let ret = self.parse_expr(next, 0).expect("no close parens");
-                let next = self
-                    .lexer
-                    .next_token()
-                    .expect("matching closing parenthesis");
-                assert_eq!(next.kind, TokenKind::ParensClose);
-                ret
-            }
+            });
         }
+        let ret = self.parse_expr(next, 0).expect("no close parens");
+        let next = self
+            .lexer
+            .next_token()
+            .expect("matching closing parenthesis");
+        assert_eq!(next.kind, TokenKind::ParensClose);
+        ret
     }
     /// Parse block expression. A block expression is a '{}'-delimited block,
     /// which contains one or more statements, and ends with an expression.
@@ -196,7 +195,22 @@ impl<'a> Parser<'a> {
     /// }
     /// ```
     fn parse_expr_block(&mut self) -> ExprId {
-        todo!("parse block expression");
+        let next = self.next_non_whitespace().expect("no close brace");
+        // empty braces {}
+        if next.kind == TokenKind::BraceClose {
+            // {} == {()} == ()
+            return self.push_expr(Expr {
+                kind: ExprKind::Unit,
+            });
+        }
+
+        let ret = self.parse_expr(next, 0).expect("no close brace");
+        let next = self
+            .lexer
+            .next_token()
+            .expect("matching closing parenthesis");
+        assert_eq!(next.kind, TokenKind::BraceClose);
+        ret
     }
     /// Parses the inside of an evaluation operation, starting from the first
     /// token after the opening parenthesis.
@@ -389,5 +403,12 @@ mod test {
             }
             _ => panic!("expected ExprKind::Eval"),
         };
+    }
+
+    #[test]
+    pub fn expr_block() {
+        let mut p = Parser::new("foo( 1 + { 2 + 3 })");
+        p.parse();
+        p.pprint_ast();
     }
 }
