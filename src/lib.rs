@@ -33,7 +33,7 @@ pub enum ExprKind<'a> {
     /// `()`
     Unit,
     /// Evaluation operator (e.g. `foo()`, `Bar(1, 2)`)
-    Eval(ExprId, ExprId),
+    Eval(ExprId, [Option<ExprId>; 3]),
 }
 #[derive(Debug)]
 pub enum Operator {
@@ -95,7 +95,6 @@ impl<'a> Parser<'a> {
     fn parse_expr(&mut self, first: Token<'a>, min_bp: u8) -> Option<ExprId> {
         // Ident position
         let mut lhs_id = match first.kind {
-            TokenKind::ParensClose => return None,
             TokenKind::ParensOpen => {
                 let next = self.eat_whitespace().expect("no close parens");
                 match next.kind {
@@ -173,9 +172,15 @@ impl<'a> Parser<'a> {
     ///   start here
     /// ```
     fn parse_eval(&mut self, caller: ExprId) -> Option<ExprId> {
-        let next = self
-            .eat_whitespace()
-            .expect("operator can't terminate expression");
+        let next =
+            self.eat_whitespace().expect("eval has closing parenthesis");
+        // no arguments
+        if next.kind == TokenKind::ParensClose {
+            return Some(self.push_expr(Expr {
+                kind: ExprKind::Eval(caller, Default::default()),
+            }));
+        }
+        // parse arguments
         let inner = self
             .parse_expr(next, 0)
             .expect("eval operator was not finished");
@@ -185,7 +190,7 @@ impl<'a> Parser<'a> {
             .expect("matching closing parenthesis");
         match next.kind {
             TokenKind::ParensClose => Some(self.push_expr(Expr {
-                kind: ExprKind::Eval(caller, inner),
+                kind: ExprKind::Eval(caller, [Some(inner), None, None]),
             })),
             t => panic!("wrong eval expression termination token: {t:?}"),
         }
@@ -243,9 +248,13 @@ impl<'a> Parser<'a> {
                 }
                 ExprKind::Ident(ref n) => println!("({n})"),
                 ExprKind::Unit => println!("()"),
-                ExprKind::Eval(caller, arg1) => {
+                ExprKind::Eval(caller, args) => {
                     println!("(eval: {:?})", self.exprs[caller]);
-                    stack.push((&self.exprs[arg1], depth + 3, true));
+                    args.iter().for_each(|arg| {
+                        if let Some(id) = arg {
+                            stack.push((&self.exprs[*id], depth + 3, true));
+                        }
+                    });
                 }
             };
         }
@@ -308,7 +317,7 @@ mod test {
 
     #[test]
     pub fn expr_fneval() {
-        let mut p = Parser::new("f(a)");
+        let mut p = Parser::new("f()");
         p.parse();
         p.pprint_ast();
     }
