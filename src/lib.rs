@@ -107,27 +107,10 @@ impl<'a> Parser<'a> {
             first
         };
 
-        // Ident position
+        // Start of expression
         let mut lhs_id = match first.kind {
-            TokenKind::ParensOpen => {
-                let next =
-                    self.next_non_whitespace().expect("no close parens");
-                match next.kind {
-                    TokenKind::ParensClose => self.push_expr(Expr {
-                        kind: ExprKind::Unit,
-                    }),
-                    _ => {
-                        let ret =
-                            self.parse_expr(next, 0).expect("no close parens");
-                        let next = self
-                            .lexer
-                            .next_token()
-                            .expect("matching closing parenthesis");
-                        assert_eq!(next.kind, TokenKind::ParensClose);
-                        ret
-                    }
-                }
-            }
+            TokenKind::BraceOpen => self.parse_expr_block(),
+            TokenKind::ParensOpen => self.parse_expr_parens(),
             TokenKind::Literal(ref k) => {
                 let number = match k {
                     LiteralKind::Int { base } => {
@@ -178,6 +161,42 @@ impl<'a> Parser<'a> {
         }
 
         Some(lhs_id)
+    }
+
+    /// Parse parenthesized expression. Examples: `(1)`, `(x + y)`
+    fn parse_expr_parens(&mut self) -> ExprId {
+        let next = self.next_non_whitespace().expect("no close parens");
+        match next.kind {
+            TokenKind::ParensClose => self.push_expr(Expr {
+                kind: ExprKind::Unit,
+            }),
+            _ => {
+                let ret = self.parse_expr(next, 0).expect("no close parens");
+                let next = self
+                    .lexer
+                    .next_token()
+                    .expect("matching closing parenthesis");
+                assert_eq!(next.kind, TokenKind::ParensClose);
+                ret
+            }
+        }
+    }
+    /// Parse block expression. A block expression is a '{}'-delimited block,
+    /// which contains one or more statements, and ends with an expression.
+    ///
+    /// Examples of block expressions:
+    ///
+    /// ```
+    /// { min(x, y) + 2 }
+    ///
+    /// {
+    ///    let x = 1; // <-- statement
+    ///    let y = 2; // <-- statement
+    ///    (x + y)    // <-- expression
+    /// }
+    /// ```
+    fn parse_expr_block(&mut self) -> ExprId {
+        todo!("parse block expression");
     }
     /// Parses the inside of an evaluation operation, starting from the first
     /// token after the opening parenthesis.
@@ -364,6 +383,11 @@ mod test {
     pub fn expr_fneval() {
         let mut p = Parser::new("f(a, b, c, 4)");
         p.parse();
-        p.pprint_ast();
+        match p.exprs.last().unwrap().kind {
+            ExprKind::Eval(_, arg_id, count) => {
+                assert_eq!(count, 4, "expected 4 arguments");
+            }
+            _ => panic!("expected ExprKind::Eval"),
+        };
     }
 }
