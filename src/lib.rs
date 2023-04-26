@@ -45,6 +45,7 @@ pub enum Operator {
     Infix(BinOp),
     /// Start of an evaluation via '('
     StartEval,
+    Statement,
     Prefix,
 }
 #[derive(Debug)]
@@ -156,10 +157,12 @@ impl<'a> Parser<'a> {
                     self.lexer.next_token();
                     lhs_id = self.parse_eval(lhs_id).expect("parse eval");
                 }
+                Operator::Statement => {
+                    break;
+                }
                 other => panic!("expected operator, found `{other:?}`"),
             };
         }
-
         Some(lhs_id)
     }
 
@@ -177,7 +180,13 @@ impl<'a> Parser<'a> {
             .lexer
             .next_token()
             .expect("matching closing parenthesis");
-        assert_eq!(next.kind, TokenKind::ParensClose);
+        match next.kind {
+            TokenKind::ParensClose => (),
+            TokenKind::Semicolon => {
+                panic!("parenthesized expressions cannot contain statements")
+            }
+            _ => panic!("expected closing parenthesis ')'"),
+        };
         ret
     }
     /// Parse block expression. A block expression is a '{}'-delimited block,
@@ -209,6 +218,11 @@ impl<'a> Parser<'a> {
             .lexer
             .next_token()
             .expect("matching closing parenthesis");
+        match next.kind {
+            TokenKind::BraceClose => (),
+            TokenKind::Semicolon => todo!("statements in block expressions"),
+            _ => panic!("block expressions need to end with '}}'"),
+        };
         assert_eq!(next.kind, TokenKind::BraceClose);
         ret
     }
@@ -288,6 +302,7 @@ impl<'a> Parser<'a> {
                 Minus => return Some(Operator::Infix(BinOp::Sub)),
                 Star => return Some(Operator::Infix(BinOp::Mul)),
                 ParensOpen => return Some(Operator::StartEval),
+                Semicolon => return Some(Operator::Statement),
                 _ => return None,
             };
         }
@@ -407,7 +422,14 @@ mod test {
 
     #[test]
     pub fn expr_block() {
-        let mut p = Parser::new("foo( 1 + { 2 + 3 })");
+        let mut p = Parser::new("{ 2 * 3 }");
+        p.parse();
+        assert_eq!(p.exprs[2].kind, ExprKind::Binary(BinOp::Mul, 0, 1));
+    }
+
+    #[test]
+    pub fn stmt_simple_expr() {
+        let mut p = Parser::new("2 + ( { 2; } )");
         p.parse();
         p.pprint_ast();
     }
