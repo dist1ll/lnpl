@@ -205,19 +205,20 @@ impl<'a> Parser<'a> {
     /// ```
     fn parse_expr_block(&mut self) -> ExprId {
         let mut next = self.next_non_whitespace().expect("missing '}'");
+        let mut block_members = 0;
         let mut stmt_count = 0;
-        let mut has_expr = false;
+
         let mut expr = 0;
         // Iterates over statements and expressions inside the block expr.
         // If we find a statement, we consume it, add it to the list of
         // statements, and continue looping until we find an expression.
         while next.kind != TokenKind::BraceClose {
-            stmt_count += 1;
+            block_members += 1;
             expr = self.parse_expr(next, 0).expect("missing '}'");
             next = self.next_non_whitespace().expect("missing '}'");
 
             match next.kind {
-                TokenKind::Semicolon => (),
+                TokenKind::Semicolon => stmt_count += 1,
                 TokenKind::BraceClose => break,
                 _ => panic!("block expressions need to end with '}}'"),
             }
@@ -226,11 +227,15 @@ impl<'a> Parser<'a> {
             // eat the ';'
             next = self.next_non_whitespace().expect("missing '}'");
         }
-        if stmt_count == 0 {
-            // {} == {()} == ()
+        // special case: empty expression block
+        if block_members == 0 {
             return self.push_expr(Expr {
                 kind: ExprKind::Unit,
             });
+        }
+        // block expr ends with statement
+        if stmt_count == block_members {
+            todo!("handle block expressions ending with a statement");
         }
         expr
     }
