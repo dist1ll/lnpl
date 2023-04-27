@@ -204,27 +204,35 @@ impl<'a> Parser<'a> {
     /// }
     /// ```
     fn parse_expr_block(&mut self) -> ExprId {
-        let next = self.next_non_whitespace().expect("no close brace");
-        // empty braces {}
-        if next.kind == TokenKind::BraceClose {
+        let mut next = self.next_non_whitespace().expect("missing '}'");
+        let mut stmt_count = 0;
+        let mut has_expr = false;
+        let mut expr = 0;
+        // Iterates over statements and expressions inside the block expr.
+        // If we find a statement, we consume it, add it to the list of
+        // statements, and continue looping until we find an expression.
+        while next.kind != TokenKind::BraceClose {
+            stmt_count += 1;
+            expr = self.parse_expr(next, 0).expect("missing '}'");
+            next = self.next_non_whitespace().expect("missing '}'");
+
+            match next.kind {
+                TokenKind::Semicolon => (),
+                TokenKind::BraceClose => break,
+                _ => panic!("block expressions need to end with '}}'"),
+            }
+            // add statement to current expr block
+            println!("statement recorded");
+            // eat the ';'
+            next = self.next_non_whitespace().expect("missing '}'");
+        }
+        if stmt_count == 0 {
             // {} == {()} == ()
             return self.push_expr(Expr {
                 kind: ExprKind::Unit,
             });
         }
-
-        let ret = self.parse_expr(next, 0).expect("no close brace");
-        let next = self
-            .lexer
-            .next_token()
-            .expect("matching closing parenthesis");
-        match next.kind {
-            TokenKind::BraceClose => (),
-            TokenKind::Semicolon => todo!("statements in block expressions"),
-            _ => panic!("block expressions need to end with '}}'"),
-        };
-        assert_eq!(next.kind, TokenKind::BraceClose);
-        ret
+        expr
     }
     /// Parses the inside of an evaluation operation, starting from the first
     /// token after the opening parenthesis.
@@ -313,6 +321,7 @@ impl<'a> Parser<'a> {
         self.exprs.push(expr);
         self.exprs.len() - 1
     }
+    /// Pushes argument to the args buffer and returns the argument id
     fn push_args(&mut self, args: &[ExprId]) -> ArgsId {
         assert!(args.len() > 0, "can't push empty argument to arg stack");
         self.args.extend_from_slice(args);
@@ -429,7 +438,7 @@ mod test {
 
     #[test]
     pub fn stmt_simple_expr() {
-        let mut p = Parser::new("2 + ( { 2; } )");
+        let mut p = Parser::new("2 + ( { 2; 2; 2 + 3; } )");
         p.parse();
         p.pprint_ast();
     }
