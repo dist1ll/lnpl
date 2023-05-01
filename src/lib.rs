@@ -241,9 +241,11 @@ impl<'a> Parser<'a> {
                 _ => panic!("block expressions need to end with '}}'"),
             }
             // add statement to current expr block
-            stmts.push(Stmt {
-                kind: StmtKind::Expr(expr),
-            }).unwrap();
+            stmts
+                .push(Stmt {
+                    kind: StmtKind::Expr(expr),
+                })
+                .unwrap();
             // eat the ';'
             next = self.next_non_whitespace().expect("missing '}'");
         }
@@ -255,7 +257,9 @@ impl<'a> Parser<'a> {
         }
         // block expr ends with statement
         if stmts.len() == block_members {
-            todo!("handle block expressions ending with a statement");
+            expr = self.push_expr(Expr {
+                kind: ExprKind::Unit,
+            });
         }
         let stmt_id = self.push_stmts(&stmts.as_slice());
         self.push_expr(Expr {
@@ -392,7 +396,20 @@ impl<'a> Parser<'a> {
                             stack.push((&self.exprs[*id], depth + 3, true));
                         });
                 }
-                ExprKind::Block(_, _, _) => println!("(block)"),
+                ExprKind::Block(_, stmt_id, stmt_count) => {
+                    println!("(blockexpr)");
+                    self.stmts[stmt_id..(stmt_id + stmt_count)]
+                        .iter()
+                        .rev()
+                        .for_each(|s| match s.kind {
+                            StmtKind::Expr(expr_id) => stack.push((
+                                &self.exprs[expr_id],
+                                depth + 3,
+                                true,
+                            )),
+                            _ => panic!(""),
+                        });
+                }
             };
         }
     }
@@ -473,7 +490,7 @@ mod test {
 
     #[test]
     pub fn stmt_simple_expr() {
-        let mut p = Parser::new("2 + ( { 2; 2; 2 + 3; } )");
+        let mut p = Parser::new("2 + ( { f(2 + 1); 2; 2 + 3; } )");
         p.parse();
         p.pprint_ast();
     }
