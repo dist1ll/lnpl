@@ -9,8 +9,10 @@
 #![allow(unused)]
 
 pub mod lexer;
+pub mod stackvec;
 
 use lexer::{Base, Keyword, Lexer, LiteralKind, Token, TokenKind};
+use stackvec::StackVec;
 
 pub enum ItemKind {
     Type,
@@ -19,9 +21,20 @@ pub enum ItemKind {
 // TODO: Make ExprId and ArgId newtypes instead of type aliases
 pub type ExprId = usize;
 pub type ArgsId = usize;
+pub type StmtId = usize;
 
 pub const MAX_FN_ARGS: usize = 5;
+pub const MAX_STMTS_PER_BLOCK: usize = 30;
 
+#[derive(Debug, Clone)]
+pub struct Stmt {
+    kind: StmtKind,
+}
+#[derive(Debug, Clone)]
+pub enum StmtKind {
+    /// An expression + semicolon, like `foo();`, `a + b;`, `{ let x = 5; };`
+    Expr(ExprId),
+}
 #[derive(Debug)]
 pub struct Expr<'a> {
     kind: ExprKind<'a>,
@@ -39,6 +52,8 @@ pub enum ExprKind<'a> {
     /// Evaluation operator (e.g. `foo()`, `Bar(1, 2)`)
     /// TODO: Reduce size with bitpacking
     Eval(ExprId, ArgsId, usize),
+    /// Block expression delimited by `{}`
+    Block(ExprId, StmtId, usize),
 }
 #[derive(Debug)]
 pub enum Operator {
@@ -83,7 +98,8 @@ fn parse_typedecl_rhs_keyword(_: &mut Lexer<'_>, k: Keyword) {
 struct Parser<'a> {
     lexer: Lexer<'a>,
     exprs: Vec<Expr<'a>>,
-    args: Vec<ExprId>,
+    args: Vec<ArgsId>,
+    stmts: Vec<Stmt>,
 }
 impl<'a> Parser<'a> {
     fn new(s: &'a str) -> Self {
@@ -91,6 +107,7 @@ impl<'a> Parser<'a> {
             lexer: Lexer::new(s),
             exprs: vec![],
             args: vec![],
+            stmts: vec![],
         }
     }
     fn parse(&mut self) {
@@ -206,7 +223,8 @@ impl<'a> Parser<'a> {
     fn parse_expr_block(&mut self) -> ExprId {
         let mut next = self.next_non_whitespace().expect("missing '}'");
         let mut block_members = 0;
-        let mut stmt_count = 0;
+        let mut stmts: StackVec<Stmt, MAX_STMTS_PER_BLOCK> =
+            Default::default();
 
         let mut expr = 0;
         // Iterates over statements and expressions inside the block expr.
@@ -218,12 +236,14 @@ impl<'a> Parser<'a> {
             next = self.next_non_whitespace().expect("missing '}'");
 
             match next.kind {
-                TokenKind::Semicolon => stmt_count += 1,
+                TokenKind::Semicolon => (),
                 TokenKind::BraceClose => break,
                 _ => panic!("block expressions need to end with '}}'"),
             }
             // add statement to current expr block
-            println!("statement recorded");
+            stmts.push(Stmt {
+                kind: StmtKind::Expr(expr),
+            }).unwrap();
             // eat the ';'
             next = self.next_non_whitespace().expect("missing '}'");
         }
@@ -234,10 +254,13 @@ impl<'a> Parser<'a> {
             });
         }
         // block expr ends with statement
-        if stmt_count == block_members {
+        if stmts.len() == block_members {
             todo!("handle block expressions ending with a statement");
         }
-        expr
+        let stmt_id = self.push_stmts(&stmts.as_slice());
+        self.push_expr(Expr {
+            kind: ExprKind::Block(expr, stmt_id, stmts.len()),
+        })
     }
     /// Parses the inside of an evaluation operation, starting from the first
     /// token after the opening parenthesis.
@@ -332,6 +355,12 @@ impl<'a> Parser<'a> {
         self.args.extend_from_slice(args);
         self.args.len() - args.len()
     }
+    /// Pushes statements to the stmts buffer and returns the statement id
+    fn push_stmts(&mut self, stmts: &[Stmt]) -> StmtId {
+        assert!(stmts.len() > 0, "non-zero number of statements expected");
+        self.stmts.extend_from_slice(stmts);
+        self.stmts.len() - stmts.len()
+    }
     /// Pretty-print the AST
     fn pprint_ast(&mut self) {
         let current = self.exprs.last().expect("AST is empty");
@@ -363,6 +392,7 @@ impl<'a> Parser<'a> {
                             stack.push((&self.exprs[*id], depth + 3, true));
                         });
                 }
+                ExprKind::Block(_, _, _) => println!("(block)"),
             };
         }
     }
