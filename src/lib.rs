@@ -261,7 +261,10 @@ impl<'a> Parser<'a> {
                 kind: ExprKind::Unit,
             });
         }
-        let stmt_id = self.push_stmts(&stmts.as_slice());
+        let stmt_id = match stmts.len() {
+            0 => 0,
+            l => self.push_stmts(&stmts.as_slice()),
+        };
         self.push_expr(Expr {
             kind: ExprKind::Block(expr, stmt_id, stmts.len()),
         })
