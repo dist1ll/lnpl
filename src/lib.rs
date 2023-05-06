@@ -11,6 +11,8 @@
 pub mod lexer;
 pub mod stackvec;
 
+use std::str::from_utf8;
+
 use lexer::{Base, Keyword, Lexer, LiteralKind, Token, TokenKind};
 use stackvec::StackVec;
 
@@ -122,11 +124,10 @@ impl<'a> Parser<'a> {
         let first = if first.kind == TokenKind::Whitespace {
             self.next_non_whitespace().expect("no expression found")
         } else {
-            first.clone()
+            first
         };
-
         // Start of expression
-        let mut lhs_id = match first.kind {
+        let mut lhs_id = match &first.kind {
             TokenKind::BraceOpen => self.parse_expr_block(),
             TokenKind::ParensOpen => self.parse_expr_parens(),
             TokenKind::Literal(ref k) => {
@@ -140,12 +141,12 @@ impl<'a> Parser<'a> {
                     kind: ExprKind::Number(number),
                 })
             }
-            TokenKind::Ident => self.push_expr(Expr {
-                kind: ExprKind::Ident(
-                    std::str::from_utf8(first.text)
-                        .expect("convert ident to utf-8"),
-                ),
-            }),
+            TokenKind::Ident => {
+                let text = from_utf8(first.text).expect("convert to utf-8");
+                self.push_expr(Expr {
+                    kind: ExprKind::Ident(text),
+                })
+            }
             t => panic!("expected expression, found `{t:?}`"),
         };
         // Operator Position
@@ -328,10 +329,10 @@ impl<'a> Parser<'a> {
             t => panic!("wrong eval expression termination token: {t:?}"),
         }
     }
-    /// Advances to the next non-whitspace token
-    fn next_non_whitespace(&mut self) -> Option<Token<'a>> {
+    /// Advances to the next non-whitespace token
+    fn next_non_whitespace(&mut self) -> Option<&Token<'a>> {
         while let Some(t) = self.lexer.next_token() {
-            match t.kind {
+            match &t.kind {
                 TokenKind::Whitespace => continue,
                 _ => return Some(t),
             };
@@ -444,9 +445,9 @@ mod test {
     use super::*;
     macro_rules! extract_int {
         ($t:ident) => {
-            match $t.kind {
-                TokenKind::Literal(k) => match k {
-                    LiteralKind::Int { base } => base,
+            match &$t.kind {
+                TokenKind::Literal(k) => match &k {
+                    LiteralKind::Int { base } => base.clone(),
                 },
                 _ => panic!(""),
             }
@@ -455,10 +456,12 @@ mod test {
 
     #[test]
     pub fn number_overflow() {
-        let t = Lexer::new("18073701615").next_token().unwrap();
+        let mut lexer = Lexer::new("18073701615");
+        let t = lexer.next_token().unwrap();
         assert_eq!(Ok(18073701615), parse_number(extract_int!(t), t.text));
 
-        let t = Lexer::new("18446744073709551616").next_token().unwrap();
+        let mut lexer = Lexer::new("18446744073709551616");
+        let t = lexer.next_token().unwrap();
         assert!(parse_number(extract_int!(t), t.text).is_err());
     }
 
@@ -498,9 +501,7 @@ mod test {
 
     #[test]
     pub fn stmt_simple_expr() {
-        // let mut p = Parser::new("2 + ( { f(2 + 1); 2; 2 + 3; } )");
-        let mut p = Parser::new("{ 1 + 2 }");
+        let mut p = Parser::new("2 + ( { f(2 + 1); 2; 2 + 3; } )");
         p.parse();
-        p.pprint_ast();
     }
 }

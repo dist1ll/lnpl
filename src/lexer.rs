@@ -143,11 +143,11 @@ impl<'a> Lexer<'a> {
     pub fn current_token(&mut self) -> Option<&Token<'a>> {
         self.current.as_ref()
     }
-    pub fn next_token(&mut self) -> Option<Token<'a>> {
+    pub fn next_token(&mut self) -> Option<&Token<'a>> {
         if self.peeked.is_some() {
-            let res = self.peeked.clone();
+            self.current = self.peeked.clone();
             self.peeked = None;
-            return res;
+            return self.current.as_ref();
         }
         let old_pos = self.pos;
         let kind = match self.advance()? {
@@ -173,14 +173,14 @@ impl<'a> Lexer<'a> {
             kind,
             text: &self.text[old_pos..self.pos],
         });
-        self.current.clone()
+        self.current.as_ref()
     }
-    pub fn peek_token(&mut self) -> Option<Token<'a>> {
+    pub fn peek_token(&mut self) -> Option<&Token<'a>> {
         if self.peeked.is_some() {
-            return self.peeked.clone();
+            return self.peeked.as_ref();
         }
-        self.peeked = self.next_token();
-        self.peeked.clone()
+        self.peeked = self.next_token().cloned();
+        self.peeked.as_ref()
     }
     // use advance() instead of self.text.next()
     fn advance(&mut self) -> Option<char> {
