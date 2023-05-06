@@ -113,7 +113,6 @@ impl<'a> Parser<'a> {
         p
     }
     fn parse(&mut self) {
-        self.exprs.clear();
         self.parse_expr(0);
     }
     /// Type declaration via expression.
@@ -322,7 +321,7 @@ impl<'a> Parser<'a> {
         // TODO: Make ARGS a slice
         let args_id = self.push_args(&args[0..(i + 1)]);
 
-        match cursor.kind {
+        match &self.lexer.current_token().unwrap().kind {
             TokenKind::ParensClose => Some(self.push_expr(Expr {
                 kind: ExprKind::Eval(caller, args_id, i + 1),
             })),
