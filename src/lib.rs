@@ -103,26 +103,27 @@ struct Parser<'a> {
 }
 impl<'a> Parser<'a> {
     fn new(s: &'a str) -> Self {
-        Self {
+        let mut p = Self {
             lexer: Lexer::new(s),
             exprs: vec![],
             args: vec![],
             stmts: vec![],
-        }
+        };
+        p.lexer.next_token(); // lexer should point at first valid token
+        p
     }
     fn parse(&mut self) {
         self.exprs.clear();
-        if let Some(t) = self.lexer.next_token() {
-            self.parse_expr(t, 0);
-        }
+        self.parse_expr(0);
     }
     /// Type declaration via expression.
-    fn parse_expr(&mut self, first: Token<'a>, min_bp: u8) -> Option<ExprId> {
+    fn parse_expr(&mut self, min_bp: u8) -> Option<ExprId> {
+        let first = self.lexer.current_token().expect("no tokens left");
         // ignore leading whitespace
         let first = if first.kind == TokenKind::Whitespace {
             self.next_non_whitespace().expect("no expression found")
         } else {
-            first
+            first.clone()
         };
 
         // Start of expression
@@ -161,10 +162,9 @@ impl<'a> Parser<'a> {
                     // this eats the operator we peeked
                     self.lexer.next_token();
 
-                    let next = self
-                        .next_non_whitespace()
+                    self.next_non_whitespace()
                         .expect("operator can't terminate expression");
-                    let rhs_id = self.parse_expr(next, bp.1).unwrap();
+                    let rhs_id = self.parse_expr(bp.1).unwrap();
                     lhs_id = self.push_expr(Expr {
                         kind: ExprKind::Binary(b, lhs_id, rhs_id),
                     });
@@ -192,7 +192,7 @@ impl<'a> Parser<'a> {
                 kind: ExprKind::Unit,
             });
         }
-        let ret = self.parse_expr(next, 0).expect("no close parens");
+        let ret = self.parse_expr(0).expect("no close parens");
         let next = self
             .lexer
             .next_token()
@@ -221,6 +221,12 @@ impl<'a> Parser<'a> {
     /// }
     /// ```
     fn parse_expr_block(&mut self) -> ExprId {
+        if self.lexer.current_token().expect("wrong input").kind
+            != TokenKind::BraceOpen
+        {
+            panic!("expected '{{' to start block expression");
+        }
+
         let mut next = self.next_non_whitespace().expect("missing '}'");
         let mut block_members = 0;
         let mut stmts: StackVec<Stmt, MAX_STMTS_PER_BLOCK> =
@@ -232,7 +238,7 @@ impl<'a> Parser<'a> {
         // statements, and continue looping until we find an expression.
         while next.kind != TokenKind::BraceClose {
             block_members += 1;
-            expr = self.parse_expr(next, 0).expect("missing '}'");
+            expr = self.parse_expr(0).expect("missing '}'");
             next = self.next_non_whitespace().expect("missing '}'");
 
             match next.kind {
@@ -263,7 +269,7 @@ impl<'a> Parser<'a> {
         }
         let stmt_id = match stmts.len() {
             0 => 0,
-            l => self.push_stmts(&stmts.as_slice()),
+            _ => self.push_stmts(&stmts.as_slice()),
         };
         self.push_expr(Expr {
             kind: ExprKind::Block(expr, stmt_id, stmts.len()),
@@ -292,18 +298,18 @@ impl<'a> Parser<'a> {
 
         loop {
             // first argument
-            args[i] = self
-                .parse_expr(cursor, 0)
-                .expect("eval operator was not finished");
+            args[i] =
+                self.parse_expr(0).expect("eval operator was not finished");
 
-            cursor = self
+            if self
                 .lexer
                 .next_token()
-                .expect("matching closing parenthesis");
-
-            if cursor.kind == TokenKind::Comma {
+                .expect("matching closing parenthesis")
+                .kind
+                == TokenKind::Comma
+            {
                 // eat the ','
-                cursor = self.lexer.next_token().unwrap();
+                self.lexer.next_token().unwrap();
                 i += 1;
                 if i >= MAX_FN_ARGS {
                     panic!("too many fn arguments. Maximum: {MAX_FN_ARGS}");
@@ -466,7 +472,7 @@ mod test {
     }
 
     #[test]
-    pub fn expr_numeric_with_ident() {
+    pub fn expr_with_ident() {
         let mut p = Parser::new("(((a)) + b)");
         p.parse();
         assert_eq!(p.exprs[2].kind, ExprKind::Binary(BinOp::Add, 0, 1));
@@ -487,13 +493,14 @@ mod test {
     #[test]
     pub fn expr_block() {
         let mut p = Parser::new("{ 2 * 3 }");
-        p.parse();
+        p.parse_expr_block();
         assert_eq!(p.exprs[2].kind, ExprKind::Binary(BinOp::Mul, 0, 1));
     }
 
     #[test]
     pub fn stmt_simple_expr() {
-        let mut p = Parser::new("2 + ( { f(2 + 1); 2; 2 + 3; } )");
+        // let mut p = Parser::new("2 + ( { f(2 + 1); 2; 2 + 3; } )");
+        let mut p = Parser::new("{ 1 + 2 }");
         p.parse();
         p.pprint_ast();
     }

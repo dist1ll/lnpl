@@ -127,6 +127,7 @@ pub struct Lexer<'a> {
     text: &'a [u8],
     pos: usize,
     peeked: Option<Token<'a>>,
+    current: Option<Token<'a>>,
 }
 
 impl<'a> Lexer<'a> {
@@ -136,7 +137,11 @@ impl<'a> Lexer<'a> {
             text: s.as_bytes(),
             pos: 0,
             peeked: None,
+            current: None,
         }
+    }
+    pub fn current_token(&mut self) -> Option<&Token<'a>> {
+        self.current.as_ref()
     }
     pub fn next_token(&mut self) -> Option<Token<'a>> {
         if self.peeked.is_some() {
@@ -164,10 +169,11 @@ impl<'a> Lexer<'a> {
             ':' => TokenKind::Colon,
             _ => TokenKind::Ident,
         };
-        Some(Token {
+        self.current = Some(Token {
             kind,
             text: &self.text[old_pos..self.pos],
-        })
+        });
+        self.current.clone()
     }
     pub fn peek_token(&mut self) -> Option<Token<'a>> {
         if self.peeked.is_some() {
