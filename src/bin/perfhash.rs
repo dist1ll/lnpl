@@ -9,7 +9,7 @@
 use std::collections::BTreeSet;
 
 fn main() {
-    println!("Collision-free hash function: ");
+    println!("Collision-free hash function:\n");
 
     let kw_raw = [
         "class",  //
@@ -18,7 +18,7 @@ fn main() {
         "let",    //
         "match",  //
         "struct", //
-        "type",   //
+        "ln",     //
         "while",  //
     ];
     let keywords: Vec<[u8; 8]> = kw_raw
@@ -37,7 +37,7 @@ fn main() {
         let mut indices = vec![];
         for b in keywords.iter() {
             let mut hash = 0usize;
-            hash += b[1] as usize + i;
+            hash += b[0] as usize + i;
             hash += (b[2] as usize) * i;
             hash = hash & 0b1111;
             indices.push(hash as u8);
@@ -52,10 +52,33 @@ fn main() {
             }
         }
         if collision_free {
-            indices.iter().zip(kw_raw.iter()).for_each(|(idx, kw)| {
-                println!("{:<6} => {:?}", kw, idx);
+            println!("#[rustfmt::skip]\nconst KEYWORD_MAP: [[u8; 8]; 16] = [");
+            let mut v: Vec<_> =
+                indices.iter().zip(kw_raw.into_iter()).collect();
+            v.sort_unstable_by(|a, b| a.0.cmp(b.0));
+            let mut k = 0;
+            (0..16).for_each(|i| {
+                if i == *v[k].0 {
+                    println!("    conv(\"{}\"),", v[k].1);
+                    k += 1;
+                } else {
+                    // empty line
+                    println!("    [0, 0, 0, 0, 0, 0, 0, 0],");
+                }
             });
+            println!("];\nconst KW_MAGIC_NUMBER: usize = {};\n", i);
+            println!("    let keyword = match hash {{");
+            v.into_iter().for_each(|(&idx, kw)| {
+                println!("        {} => Keyword::{},", idx, title_case(kw))
+            });
+            println!("        _ => return (hash, None),\n    }};\n");
             break;
         }
     }
+}
+
+fn title_case(s: &str) -> String {
+    let mut upper_case = String::from(s);
+    upper_case.get_mut(0..1).unwrap().make_ascii_uppercase();
+    upper_case
 }

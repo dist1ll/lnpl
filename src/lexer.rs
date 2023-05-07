@@ -60,7 +60,7 @@ pub enum Keyword {
     Let,
     Match,
     Struct,
-    Type,
+    Ln,
     While,
 }
 
@@ -74,41 +74,46 @@ const fn conv(s: &'static str) -> [u8; 8] {
     }
     res
 }
-// Indices: [4, 12, 2, 13, 8, 0, 1, 6], i = 3
+
+#[rustfmt::skip]
+const KEYWORD_MAP: [[u8; 8]; 16] = [
+    [0, 0, 0, 0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0, 0, 0, 0],
+    conv("ln"),
+    conv("while"),
+    [0, 0, 0, 0, 0, 0, 0, 0],
+    conv("struct"),
+    [0, 0, 0, 0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0, 0, 0, 0],
+    conv("for"),
+    [0, 0, 0, 0, 0, 0, 0, 0],
+    conv("let"),
+    conv("match"),
+    conv("fn"),
+    [0, 0, 0, 0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0, 0, 0, 0],
+    conv("class"),
+];
+
+const KW_MAGIC_NUMBER: usize = 6;
+
 pub fn keyword_hash(b: &[u8; 8]) -> (usize, Option<Keyword>) {
-    let hash = (b[1] as usize + 3 + b[2] as usize * 3) & 0b1111;
+    let hash =
+        (b[0] as usize + KW_MAGIC_NUMBER + b[2] as usize * KW_MAGIC_NUMBER)
+            & 0b1111;
     let keyword = match hash {
-        0 => Keyword::Match,
-        1 => Keyword::Fn,
-        2 => Keyword::Class,
-        4 => Keyword::Let,
-        6 => Keyword::While,
+        2 => Keyword::Ln,
+        3 => Keyword::While,
+        5 => Keyword::Struct,
         8 => Keyword::For,
-        12 => Keyword::Type,
-        13 => Keyword::Struct,
+        10 => Keyword::Let,
+        11 => Keyword::Match,
+        12 => Keyword::Fn,
+        15 => Keyword::Class,
         _ => return (hash, None),
     };
     (hash, Some(keyword))
 }
-
-const KEYWORD_MAP: [[u8; 8]; 16] = [
-    conv("match"),            // 0
-    conv("fn"),               // 1
-    conv("class"),            // 2
-    [0, 0, 0, 0, 0, 0, 0, 0], //
-    conv("let"),              // 4
-    [0, 0, 0, 0, 0, 0, 0, 0], //
-    conv("while"),            // 6
-    [0, 0, 0, 0, 0, 0, 0, 0], //
-    conv("for"),              // 8
-    [0, 0, 0, 0, 0, 0, 0, 0], //
-    [0, 0, 0, 0, 0, 0, 0, 0], //
-    [0, 0, 0, 0, 0, 0, 0, 0], //
-    conv("type"),             //
-    conv("struct"),           //
-    [0, 0, 0, 0, 0, 0, 0, 0], //
-    [0, 0, 0, 0, 0, 0, 0, 0], //
-];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LiteralKind {
