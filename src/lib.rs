@@ -23,7 +23,26 @@ pub enum ItemKind {
 // TODO: Make ExprId and ArgId newtypes instead of type aliases
 pub type ExprId = usize;
 pub type ArgsId = usize;
-pub type StmtId = usize;
+
+use newtypes::StmtRef;
+mod newtypes {
+    use std::ops::Range;
+
+    #[derive(Debug, PartialEq)]
+    pub struct StmtRef(u32);
+    impl StmtRef {
+        pub fn new(index: usize, statement_count: usize) -> Self {
+            assert!(index < 1 << 24);
+            assert!(statement_count < 1 << 8);
+            Self((index << 8 + statement_count) as u32)
+        }
+        pub fn into_range(&self) -> Range<usize> {
+            let index = (self.0 >> 8) as usize;
+            let count = (self.0 & 0xff) as usize;
+            index..(index + count)
+        }
+    }
+}
 
 pub const MAX_FN_ARGS: usize = 5;
 pub const MAX_STMTS_PER_BLOCK: usize = 30;
@@ -55,7 +74,7 @@ pub enum ExprKind<'a> {
     /// TODO: Reduce size with bitpacking
     Eval(ExprId, ArgsId, usize),
     /// Block expression delimited by `{}`
-    Block(ExprId, StmtId, usize),
+    Block(ExprId, StmtRef),
 }
 #[derive(Debug)]
 pub enum Operator {
@@ -267,12 +286,12 @@ impl<'a> Parser<'a> {
                 kind: ExprKind::Unit,
             });
         }
-        let stmt_id = match stmts.len() {
-            0 => 0,
+        let stmt_ref = match stmts.len() {
+            0 => StmtRef::new(0, 0),
             _ => self.push_stmts(&stmts.as_slice()),
         };
         self.push_expr(Expr {
-            kind: ExprKind::Block(expr, stmt_id, stmts.len()),
+            kind: ExprKind::Block(expr, stmt_ref),
         })
     }
     /// Parses the inside of an evaluation operation, starting from the first
@@ -369,10 +388,11 @@ impl<'a> Parser<'a> {
         self.args.len() - args.len()
     }
     /// Pushes statements to the stmts buffer and returns the statement id
-    fn push_stmts(&mut self, stmts: &[Stmt]) -> StmtId {
-        assert!(stmts.len() > 0, "non-zero number of statements expected");
+    fn push_stmts(&mut self, stmts: &[Stmt]) -> StmtRef {
+        let len = stmts.len();
+        assert!(len > 0, "non-zero number of statements expected");
         self.stmts.extend_from_slice(stmts);
-        self.stmts.len() - stmts.len()
+        StmtRef::new((self.stmts.len() - len), len)
     }
     /// Pretty-print the AST
     fn pprint_ast(&mut self) {
@@ -405,19 +425,18 @@ impl<'a> Parser<'a> {
                             stack.push((&self.exprs[*id], depth + 3, true));
                         });
                 }
-                ExprKind::Block(_, stmt_id, stmt_count) => {
+                ExprKind::Block(_, ref stmt_ref) => {
                     println!("(blockexpr)");
-                    self.stmts[stmt_id..(stmt_id + stmt_count)]
-                        .iter()
-                        .rev()
-                        .for_each(|s| match s.kind {
+                    self.stmts[stmt_ref.into_range()].iter().rev().for_each(
+                        |s| match s.kind {
                             StmtKind::Expr(expr_id) => stack.push((
                                 &self.exprs[expr_id],
                                 depth + 3,
                                 true,
                             )),
                             _ => panic!(""),
-                        });
+                        },
+                    );
                 }
             };
         }
