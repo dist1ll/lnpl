@@ -74,7 +74,7 @@ pub trait ContainerRange<T: Clone> {
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
 pub struct ExprRef(pub u32);
 impl ExprRef {
-    pub const MAX: usize = u32::MAX as usize;
+    pub const MAX: usize = (1 << 22);
 }
 impl<'a> ContainerIndex<Expr<'a>> for ExprRef {
     fn index(&self) -> usize {
@@ -82,16 +82,29 @@ impl<'a> ContainerIndex<Expr<'a>> for ExprRef {
     }
 }
 
-/// ArgsSlice is a fat pointer into [`Container<Expr>`]
+/// Arguments is a fat pointer into [`Container<Expr>`]
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
-pub struct ArgsSlice(pub usize, pub usize);
-impl<'a> ContainerRange<Expr<'a>> for ArgsSlice {
+pub struct Arguments(u32);
+impl Arguments {
+    pub fn new(index: usize, count: usize) -> Self {
+        assert!((index + count) < ExprRef::MAX);
+        let upper = (index as u32) << 8;
+        let lower = (count as u32) & 0xff;
+        Self(upper | lower)
+    }
+    pub fn count(&self) -> usize {
+        (self.0 & 0xff) as usize
+    }
+}
+impl<'a> ContainerRange<Expr<'a>> for Arguments {
     fn range(&self) -> Range<usize> {
-        self.0..(self.0 + self.1)
+        let lower = (self.0) & 0xff;
+        let upper = (self.0) >> 8;
+        (upper as usize)..(upper + lower) as usize
     }
 }
 
-/// StmtSlice is a fat pointer into [`Container<Expr>`]
+/// StmtSlice is a fat pointer into [`Container<Stmt>`]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct StmtSlice(u32);
 impl ContainerRange<Stmt> for StmtSlice {
@@ -122,7 +135,7 @@ pub enum ExprKind<'a> {
     Ident(&'a str),
     /// `()`
     /// Evaluation operator (e.g. `foo()`, `Bar(1, 2)`)
-    Eval(ExprRef, ArgsSlice),
+    Eval(ExprRef, Arguments),
     /// Block expression delimited by `{}`
     Block(ExprRef, StmtSlice),
 }

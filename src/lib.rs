@@ -228,7 +228,7 @@ impl<'a> Parser<'a> {
         let mut i = 0;
 
         loop {
-            // parse & pop argument
+            // parse & pop argument, so they can be added later
             self.parse_expr(0).expect("eval operator was not finished");
             // EX: we already asserted existence of at least 1 expression
             args[i] = self.exprs.pop().unwrap();
@@ -295,12 +295,12 @@ impl<'a> Parser<'a> {
         ExprRef((self.exprs.len() - 1) as u32)
     }
     /// Pushes argument to the args buffer and returns the argument id
-    fn push_exprs(&mut self, expr_ids: &[Expr<'a>]) -> ArgsSlice {
+    fn push_exprs(&mut self, expr_ids: &[Expr<'a>]) -> Arguments {
         let len = self.exprs.len();
         assert!(expr_ids.len() > 0, "can't push empty argument to arg stack");
-        assert!(self.exprs.len() <= (ExprRef::MAX - expr_ids.len()));
+        assert!(len <= (ExprRef::MAX - expr_ids.len()));
         self.exprs.extend_from_slice(expr_ids);
-        ArgsSlice(len, expr_ids.len())
+        Arguments::new(len, expr_ids.len())
     }
     /// Pushes statements to the stmts buffer and returns the statement id
     fn push_stmts(&mut self, stmts: &[Stmt]) -> StmtSlice {
@@ -334,11 +334,7 @@ impl<'a> Parser<'a> {
                 ExprKind::Eval(caller, args) => {
                     println!("(eval: {:?})", self.exprs.get(caller));
                     self.exprs.get_slice(args).iter().rev().for_each(|expr| {
-                        stack.push((
-                            expr,
-                            depth + 3,
-                            true,
-                        ));
+                        stack.push((expr, depth + 3, true));
                     });
                 }
                 ExprKind::Block(_, stmt_ref) => {
@@ -377,6 +373,8 @@ fn parse_number(base: Base, s: &[u8]) -> Result<usize, &'static str> {
 }
 
 mod test {
+    use std::mem::size_of;
+
     use super::*;
     macro_rules! extract_int {
         ($t:ident) => {
@@ -430,7 +428,7 @@ mod test {
         p.parse();
         match p.exprs.last().unwrap().kind {
             ExprKind::Eval(_, args) => {
-                assert_eq!(args.1, 4, "expected 4 arguments");
+                assert_eq!(args.count(), 4, "expected 4 arguments");
             }
             _ => panic!("expected ExprKind::Eval"),
         };
