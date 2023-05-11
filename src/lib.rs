@@ -8,104 +8,18 @@
 
 #![allow(unused)]
 
+pub mod ast;
 pub mod lexer;
 pub mod stackvec;
 
 use std::str::from_utf8;
 
+use ast::*;
 use lexer::{Base, Keyword, Lexer, LiteralKind, Token, TokenKind};
 use stackvec::StackVec;
 
-pub enum ItemKind {
-    Type,
-}
-// TODO: Make ExprId a 32-bit integer
-// TODO: Make ExprId and ArgId newtypes instead of type aliases
-pub type ExprId = usize;
-pub type ArgsId = usize;
-
-use newtypes::StmtRef;
-mod newtypes {
-    use std::ops::Range;
-
-    #[derive(Debug, PartialEq)]
-    pub struct StmtRef(u32);
-    impl StmtRef {
-        pub fn new(index: usize, statement_count: usize) -> Self {
-            assert!(index < 1 << 24);
-            assert!(statement_count < 1 << 8);
-            Self((index << 8 + statement_count) as u32)
-        }
-        pub fn into_range(&self) -> Range<usize> {
-            let index = (self.0 >> 8) as usize;
-            let count = (self.0 & 0xff) as usize;
-            index..(index + count)
-        }
-    }
-}
-
 pub const MAX_FN_ARGS: usize = 5;
 pub const MAX_STMTS_PER_BLOCK: usize = 30;
-
-#[derive(Debug, Clone)]
-pub struct Stmt {
-    kind: StmtKind,
-}
-#[derive(Debug, Clone)]
-pub enum StmtKind {
-    /// An expression + semicolon, like `foo();`, `a + b;`, `{ let x = 5; };`
-    Expr(ExprId),
-}
-#[derive(Debug)]
-pub struct Expr<'a> {
-    kind: ExprKind<'a>,
-}
-#[derive(Debug, PartialEq)]
-pub enum ExprKind<'a> {
-    /// A number literal
-    Number(usize),
-    /// A binary operation (e.g. `+`, `-`)
-    Binary(BinOp, ExprId, ExprId),
-    /// An identifier (variable, type, function name)
-    Ident(&'a str),
-    /// `()`
-    Unit,
-    /// Evaluation operator (e.g. `foo()`, `Bar(1, 2)`)
-    /// TODO: Reduce size with bitpacking
-    Eval(ExprId, ArgsId, usize),
-    /// Block expression delimited by `{}`
-    Block(ExprId, StmtRef),
-}
-#[derive(Debug)]
-pub enum Operator {
-    Infix(BinOp),
-    /// Start of an evaluation via '('
-    StartEval,
-    Statement,
-    Prefix,
-}
-#[derive(Debug)]
-pub enum Bracket {
-    Parens,
-    Bracket,
-    Brace,
-}
-#[derive(Debug, PartialEq)]
-pub enum BinOp {
-    Add,
-    Sub,
-    Mul,
-    Div,
-}
-
-impl BinOp {
-    pub fn binding_power(&self) -> (u8, u8) {
-        match self {
-            BinOp::Add | BinOp::Sub => (1, 2), // left assoc
-            BinOp::Mul | BinOp::Div => (3, 4), // left assoc
-        }
-    }
-}
 
 /// Type declaration via `struct` or `fn`.
 fn parse_typedecl_rhs_keyword(_: &mut Lexer<'_>, k: Keyword) {
@@ -118,17 +32,17 @@ fn parse_typedecl_rhs_keyword(_: &mut Lexer<'_>, k: Keyword) {
 
 struct Parser<'a> {
     lexer: Lexer<'a>,
-    exprs: Vec<Expr<'a>>,
-    args: Vec<ArgsId>,
-    stmts: Vec<Stmt>,
+    exprs: Container<Expr<'a>>,
+    args: Container<ExprRef>,
+    stmts: Container<Stmt>,
 }
 impl<'a> Parser<'a> {
     fn new(s: &'a str) -> Self {
         let mut p = Self {
             lexer: Lexer::new(s),
-            exprs: vec![],
-            args: vec![],
-            stmts: vec![],
+            exprs: Default::default(),
+            args: Default::default(),
+            stmts: Default::default(),
         };
         p.lexer.next_token(); // lexer should point at first valid token
         p
@@ -137,7 +51,7 @@ impl<'a> Parser<'a> {
         self.parse_expr(0);
     }
     /// Type declaration via expression.
-    fn parse_expr(&mut self, min_bp: u8) -> Option<ExprId> {
+    fn parse_expr(&mut self, min_bp: u8) -> Option<ExprRef> {
         let first = self.lexer.current_token().expect("no tokens left");
         // ignore leading whitespace
         let first = if first.kind == TokenKind::Whitespace {
@@ -203,7 +117,7 @@ impl<'a> Parser<'a> {
     }
 
     /// Parse parenthesized expression. Examples: `(1)`, `(x + y)`
-    fn parse_expr_parens(&mut self) -> ExprId {
+    fn parse_expr_parens(&mut self) -> ExprRef {
         let next = self.next_non_whitespace().expect("no close parens");
         // empty parentheses ()
         if next.kind == TokenKind::ParensClose {
@@ -239,7 +153,7 @@ impl<'a> Parser<'a> {
     ///    (x + y)    // <-- expression
     /// }
     /// ```
-    fn parse_expr_block(&mut self) -> ExprId {
+    fn parse_expr_block(&mut self) -> ExprRef {
         if self.lexer.current_token().expect("wrong input").kind
             != TokenKind::BraceOpen
         {
@@ -251,7 +165,7 @@ impl<'a> Parser<'a> {
         let mut stmts: StackVec<Stmt, MAX_STMTS_PER_BLOCK> =
             Default::default();
 
-        let mut expr = 0;
+        let mut expr = ExprRef(0);
         // Iterates over statements and expressions inside the block expr.
         // If we find a statement, we consume it, add it to the list of
         // statements, and continue looping until we find an expression.
@@ -287,7 +201,7 @@ impl<'a> Parser<'a> {
             });
         }
         let stmt_ref = match stmts.len() {
-            0 => StmtRef::new(0, 0),
+            0 => StmtSlice::new(0, 0),
             _ => self.push_stmts(&stmts.as_slice()),
         };
         self.push_expr(Expr {
@@ -301,18 +215,18 @@ impl<'a> Parser<'a> {
     ///       ^
     ///   start here
     /// ```
-    fn parse_eval(&mut self, caller: ExprId) -> Option<ExprId> {
+    fn parse_eval(&mut self, caller: ExprRef) -> Option<ExprRef> {
         let mut cursor = self
             .next_non_whitespace()
             .expect("eval has closing parenthesis");
         // no arguments
         if cursor.kind == TokenKind::ParensClose {
             return Some(self.push_expr(Expr {
-                kind: ExprKind::Eval(caller, Default::default(), 0),
+                kind: ExprKind::Eval(caller, Default::default()),
             }));
         }
         // parse arguments
-        let mut args: [ExprId; MAX_FN_ARGS] = Default::default();
+        let mut args: [ExprRef; MAX_FN_ARGS] = Default::default();
         let mut i = 0;
 
         loop {
@@ -338,12 +252,11 @@ impl<'a> Parser<'a> {
             }
         }
 
-        // TODO: Make ARGS a slice
-        let args_id = self.push_args(&args[0..(i + 1)]);
+        let args = self.push_args(&args[0..(i + 1)]);
 
         match &self.lexer.current_token().unwrap().kind {
             TokenKind::ParensClose => Some(self.push_expr(Expr {
-                kind: ExprKind::Eval(caller, args_id, i + 1),
+                kind: ExprKind::Eval(caller, args),
             })),
             t => panic!("wrong eval expression termination token: {t:?}"),
         }
@@ -377,22 +290,27 @@ impl<'a> Parser<'a> {
         None
     }
     /// Pushes expression to the expr buffer and returns its id.
-    fn push_expr(&mut self, expr: Expr<'a>) -> ExprId {
+    fn push_expr(&mut self, expr: Expr<'a>) -> ExprRef {
+        assert!(self.exprs.len() < ExprRef::MAX);
         self.exprs.push(expr);
-        self.exprs.len() - 1
+        ExprRef((self.exprs.len() - 1) as u32)
     }
     /// Pushes argument to the args buffer and returns the argument id
-    fn push_args(&mut self, args: &[ExprId]) -> ArgsId {
-        assert!(args.len() > 0, "can't push empty argument to arg stack");
-        self.args.extend_from_slice(args);
-        self.args.len() - args.len()
+    fn push_args(&mut self, expr_ids: &[ExprRef]) -> ArgsSlice {
+        assert!(expr_ids.len() > 0, "can't push empty argument to arg stack");
+        assert!(
+            self.args.len() < ExprRef::MAX,
+            "maximum total argument count reached"
+        );
+        self.args.extend_from_slice(expr_ids);
+        ArgsSlice(self.args.len() - expr_ids.len(), expr_ids.len())
     }
     /// Pushes statements to the stmts buffer and returns the statement id
-    fn push_stmts(&mut self, stmts: &[Stmt]) -> StmtRef {
+    fn push_stmts(&mut self, stmts: &[Stmt]) -> StmtSlice {
         let len = stmts.len();
         assert!(len > 0, "non-zero number of statements expected");
         self.stmts.extend_from_slice(stmts);
-        StmtRef::new((self.stmts.len() - len), len)
+        StmtSlice::new((self.stmts.len() - len), len)
     }
     /// Pretty-print the AST
     fn pprint_ast(&mut self) {
@@ -411,26 +329,27 @@ impl<'a> Parser<'a> {
                         BinOp::Div => " ÷",
                     };
                     println!("{op_str}",);
-                    stack.push((&self.exprs[r], depth + 3, true));
-                    stack.push((&self.exprs[l], depth + 3, false));
+                    stack.push((&self.exprs.get(r), depth + 3, true));
+                    stack.push((&self.exprs.get(l), depth + 3, false));
                 }
                 ExprKind::Ident(ref n) => println!("({n})"),
                 ExprKind::Unit => println!("()"),
-                ExprKind::Eval(caller, args_id, count) => {
-                    println!("(eval: {:?})", self.exprs[caller]);
-                    self.args[args_id..(args_id + count)]
-                        .iter()
-                        .rev()
-                        .for_each(|id| {
-                            stack.push((&self.exprs[*id], depth + 3, true));
-                        });
+                ExprKind::Eval(caller, args) => {
+                    println!("(eval: {:?})", self.exprs.get(caller));
+                    self.args.get_slice(args).iter().rev().for_each(|id| {
+                        stack.push((
+                            &self.exprs.get(*id as ExprRef),
+                            depth + 3,
+                            true,
+                        ));
+                    });
                 }
-                ExprKind::Block(_, ref stmt_ref) => {
+                ExprKind::Block(_, stmt_ref) => {
                     println!("(blockexpr)");
-                    self.stmts[stmt_ref.into_range()].iter().rev().for_each(
+                    self.stmts.get_slice(stmt_ref).iter().rev().for_each(
                         |s| match s.kind {
                             StmtKind::Expr(expr_id) => stack.push((
-                                &self.exprs[expr_id],
+                                &self.exprs.get(expr_id),
                                 depth + 3,
                                 true,
                             )),
@@ -488,15 +407,24 @@ mod test {
     pub fn expr_numeric() {
         let mut p = Parser::new("(1 + 2) * 3");
         p.parse();
-        assert_eq!(p.exprs[2].kind, ExprKind::Binary(BinOp::Add, 0, 1));
-        assert_eq!(p.exprs[4].kind, ExprKind::Binary(BinOp::Mul, 2, 3));
+        assert_eq!(
+            p.exprs.get(ExprRef(2)).kind,
+            ExprKind::Binary(BinOp::Add, ExprRef(0), ExprRef(1))
+        );
+        assert_eq!(
+            p.exprs.get(ExprRef(4)).kind,
+            ExprKind::Binary(BinOp::Mul, ExprRef(2), ExprRef(3))
+        );
     }
 
     #[test]
     pub fn expr_with_ident() {
         let mut p = Parser::new("(((a)) + b)");
         p.parse();
-        assert_eq!(p.exprs[2].kind, ExprKind::Binary(BinOp::Add, 0, 1));
+        assert_eq!(
+            p.exprs.get(ExprRef(2)).kind,
+            ExprKind::Binary(BinOp::Add, ExprRef(0), ExprRef(1))
+        );
     }
 
     #[test]
@@ -504,8 +432,8 @@ mod test {
         let mut p = Parser::new("f(a, b, c, 4)");
         p.parse();
         match p.exprs.last().unwrap().kind {
-            ExprKind::Eval(_, arg_id, count) => {
-                assert_eq!(count, 4, "expected 4 arguments");
+            ExprKind::Eval(_, args) => {
+                assert_eq!(args.1, 4, "expected 4 arguments");
             }
             _ => panic!("expected ExprKind::Eval"),
         };
@@ -515,7 +443,10 @@ mod test {
     pub fn expr_block() {
         let mut p = Parser::new("{ 2 * 3 }");
         p.parse_expr_block();
-        assert_eq!(p.exprs[2].kind, ExprKind::Binary(BinOp::Mul, 0, 1));
+        assert_eq!(
+            p.exprs.get(ExprRef(2)).kind,
+            ExprKind::Binary(BinOp::Mul, ExprRef(0), ExprRef(1))
+        );
     }
 
     #[test]
