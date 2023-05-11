@@ -307,6 +307,7 @@ impl<'a> Parser<'a> {
         let len = stmts.len();
         assert!(len > 0, "non-zero number of statements expected");
         self.stmts.extend_from_slice(stmts);
+        println!("making a slice: {} and {} ", (self.stmts.len() - len), len);
         StmtSlice::new((self.stmts.len() - len), len)
     }
     /// Pretty-print the AST
@@ -337,14 +338,15 @@ impl<'a> Parser<'a> {
                         stack.push((expr, depth + 3, true));
                     });
                 }
-                ExprKind::Block(_, stmt_ref) => {
+                ExprKind::Block(expr, stmt_ref) => {
                     println!("(blockexpr)");
+                    stack.push((self.exprs.get(expr), depth + 3, true));
                     self.stmts.get_slice(stmt_ref).iter().rev().for_each(
                         |s| match s.kind {
                             StmtKind::Expr(expr_id) => stack.push((
                                 &self.exprs.get(expr_id),
                                 depth + 3,
-                                true,
+                                false,
                             )),
                             _ => panic!(""),
                         },
@@ -448,5 +450,6 @@ mod test {
     pub fn stmt_simple_expr() {
         let mut p = Parser::new("2 + ( { f(2 + 1); 2; 2 + 3; } )");
         p.parse();
+        p.pprint_ast()
     }
 }

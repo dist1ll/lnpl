@@ -119,7 +119,7 @@ impl StmtSlice {
     pub fn new(index: usize, statement_count: usize) -> Self {
         assert!(index < 1 << 24);
         assert!(statement_count < 1 << 8);
-        Self((index << 8 + statement_count) as u32)
+        Self(((index << 8) + statement_count) as u32)
     }
 }
 
