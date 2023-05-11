@@ -21,7 +21,7 @@ pub enum StmtKind {
     /// An expression + semicolon, like `foo();`, `a + b;`, `{ let x = 5; };`
     Expr(ExprRef),
 }
-#[derive(Debug, Clone)]
+#[derive(Default, Debug, Clone)]
 pub struct Expr<'a> {
     pub kind: ExprKind<'a>,
 }
@@ -39,6 +39,9 @@ impl<T: Clone> Container<T> {
     }
     pub fn push(&mut self, value: T) {
         self.0.push(value)
+    }
+    pub fn pop(&mut self) -> Option<T> {
+        self.0.pop()
     }
     pub fn last(&self) -> Option<&T> {
         self.0.last()
@@ -82,7 +85,7 @@ impl<'a> ContainerIndex<Expr<'a>> for ExprRef {
 /// ArgsSlice is a fat pointer into [`Container<Expr>`]
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
 pub struct ArgsSlice(pub usize, pub usize);
-impl ContainerRange<ExprRef> for ArgsSlice {
+impl<'a> ContainerRange<Expr<'a>> for ArgsSlice {
     fn range(&self) -> Range<usize> {
         self.0..(self.0 + self.1)
     }
@@ -107,8 +110,10 @@ impl StmtSlice {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Default, Debug, Clone, PartialEq)]
 pub enum ExprKind<'a> {
+    #[default]
+    Unit,
     /// A number literal
     Number(usize),
     /// A binary operation (e.g. `+`, `-`)
@@ -116,9 +121,7 @@ pub enum ExprKind<'a> {
     /// An identifier (variable, type, function name)
     Ident(&'a str),
     /// `()`
-    Unit,
     /// Evaluation operator (e.g. `foo()`, `Bar(1, 2)`)
-    /// TODO: Reduce size with bitpacking
     Eval(ExprRef, ArgsSlice),
     /// Block expression delimited by `{}`
     Block(ExprRef, StmtSlice),

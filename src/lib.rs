@@ -33,7 +33,6 @@ fn parse_typedecl_rhs_keyword(_: &mut Lexer<'_>, k: Keyword) {
 struct Parser<'a> {
     lexer: Lexer<'a>,
     exprs: Container<Expr<'a>>,
-    args: Container<ExprRef>,
     stmts: Container<Stmt>,
 }
 impl<'a> Parser<'a> {
@@ -41,7 +40,6 @@ impl<'a> Parser<'a> {
         let mut p = Self {
             lexer: Lexer::new(s),
             exprs: Default::default(),
-            args: Default::default(),
             stmts: Default::default(),
         };
         p.lexer.next_token(); // lexer should point at first valid token
@@ -226,13 +224,14 @@ impl<'a> Parser<'a> {
             }));
         }
         // parse arguments
-        let mut args: [ExprRef; MAX_FN_ARGS] = Default::default();
+        let mut args: [Expr; MAX_FN_ARGS] = Default::default();
         let mut i = 0;
 
         loop {
-            // first argument
-            args[i] =
-                self.parse_expr(0).expect("eval operator was not finished");
+            // parse & pop argument
+            self.parse_expr(0).expect("eval operator was not finished");
+            // EX: we already asserted existence of at least 1 expression
+            args[i] = self.exprs.pop().unwrap();
 
             if self
                 .lexer
@@ -252,7 +251,7 @@ impl<'a> Parser<'a> {
             }
         }
 
-        let args = self.push_args(&args[0..(i + 1)]);
+        let args = self.push_exprs(&args[0..(i + 1)]);
 
         match &self.lexer.current_token().unwrap().kind {
             TokenKind::ParensClose => Some(self.push_expr(Expr {
@@ -296,14 +295,12 @@ impl<'a> Parser<'a> {
         ExprRef((self.exprs.len() - 1) as u32)
     }
     /// Pushes argument to the args buffer and returns the argument id
-    fn push_args(&mut self, expr_ids: &[ExprRef]) -> ArgsSlice {
+    fn push_exprs(&mut self, expr_ids: &[Expr<'a>]) -> ArgsSlice {
+        let len = self.exprs.len();
         assert!(expr_ids.len() > 0, "can't push empty argument to arg stack");
-        assert!(
-            self.args.len() < ExprRef::MAX,
-            "maximum total argument count reached"
-        );
-        self.args.extend_from_slice(expr_ids);
-        ArgsSlice(self.args.len() - expr_ids.len(), expr_ids.len())
+        assert!(self.exprs.len() <= (ExprRef::MAX - expr_ids.len()));
+        self.exprs.extend_from_slice(expr_ids);
+        ArgsSlice(len, expr_ids.len())
     }
     /// Pushes statements to the stmts buffer and returns the statement id
     fn push_stmts(&mut self, stmts: &[Stmt]) -> StmtSlice {
@@ -336,9 +333,9 @@ impl<'a> Parser<'a> {
                 ExprKind::Unit => println!("()"),
                 ExprKind::Eval(caller, args) => {
                     println!("(eval: {:?})", self.exprs.get(caller));
-                    self.args.get_slice(args).iter().rev().for_each(|id| {
+                    self.exprs.get_slice(args).iter().rev().for_each(|expr| {
                         stack.push((
-                            &self.exprs.get(*id as ExprRef),
+                            expr,
                             depth + 3,
                             true,
                         ));
