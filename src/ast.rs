@@ -8,6 +8,9 @@
 
 use std::ops::Range;
 
+pub const MAX_FN_ARGS: usize = 5;
+pub const MAX_STMTS_PER_BLOCK: usize = 30;
+
 pub enum ItemKind {
     Type,
 }
@@ -21,9 +24,26 @@ pub enum StmtKind {
     /// An expression + semicolon, like `foo();`, `a + b;`, `{ let x = 5; };`
     Expr(ExprRef),
 }
+// ln { 324 }
 #[derive(Default, Debug, Clone)]
 pub struct Expr<'a> {
     pub kind: ExprKind<'a>,
+}
+#[derive(Default, Debug, Clone, PartialEq)]
+pub enum ExprKind<'a> {
+    #[default]
+    Unit,
+    /// A number literal
+    Number(usize),
+    /// A binary operation (e.g. `+`, `-`)
+    Binary(BinOp, ExprRef, ExprRef),
+    /// An identifier (variable, type, function name)
+    Ident(&'a str),
+    /// `()`
+    /// Evaluation operator (e.g. `foo()`, `Bar(1, 2)`)
+    Eval(ExprRef, Arguments),
+    /// Block expression delimited by `{}`
+    Block(ExprRef, StmtSlice),
 }
 
 pub struct Container<T: Clone>(Vec<T>);
@@ -72,9 +92,13 @@ pub trait ContainerRange<T: Clone> {
 }
 
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
-pub struct ExprRef(pub u32);
+pub struct ExprRef(u32);
 impl ExprRef {
     pub const MAX: usize = (1 << 22);
+    pub fn new(value: usize) -> Self {
+        assert!(value < Self::MAX, "expression limit hit");
+        Self(value as u32)
+    }
 }
 impl<'a> ContainerIndex<Expr<'a>> for ExprRef {
     fn index(&self) -> usize {
@@ -123,22 +147,6 @@ impl StmtSlice {
     }
 }
 
-#[derive(Default, Debug, Clone, PartialEq)]
-pub enum ExprKind<'a> {
-    #[default]
-    Unit,
-    /// A number literal
-    Number(usize),
-    /// A binary operation (e.g. `+`, `-`)
-    Binary(BinOp, ExprRef, ExprRef),
-    /// An identifier (variable, type, function name)
-    Ident(&'a str),
-    /// `()`
-    /// Evaluation operator (e.g. `foo()`, `Bar(1, 2)`)
-    Eval(ExprRef, Arguments),
-    /// Block expression delimited by `{}`
-    Block(ExprRef, StmtSlice),
-}
 #[derive(Debug)]
 pub enum Operator {
     Infix(BinOp),
