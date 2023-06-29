@@ -43,13 +43,13 @@ impl<'a> Lexer<'a> {
     #[inline]
     pub fn next(&mut self) -> Option<Token> {
         let old_pos = self.pos;
-        let kind = match *self.peek()? {
+        let kind = match self.advance()? {
             c if is_ident_prefix(c) => self.read_name(c),
             c if c.is_ascii_whitespace() => {
                 self.read_while(|c| c.is_ascii_whitespace());
                 TokenKind::Whitespace
             }
-            '0'..='9' => self.read_numeral(),
+            c @ '0'..='9' => self.read_numeral(c),
             ';' => TokenKind::Semicolon,
             ',' => TokenKind::Comma,
             '.' => TokenKind::Dot,
@@ -90,11 +90,7 @@ impl<'a> Lexer<'a> {
         self.chars.peek()
     }
     #[inline]
-    fn read_numeral(&mut self) -> TokenKind {
-        let first = match self.advance() {
-            Some(digit) => digit,
-            None => panic!("no characters left to read"),
-        };
+    fn read_numeral(&mut self, first: char) -> TokenKind {
         let second = match self.advance() {
             None => return TokenKind::Number(Base::Decimal),
             Some(digit) => digit,
@@ -123,12 +119,12 @@ impl<'a> Lexer<'a> {
     }
     /// Returns either Ident or Keyword
     #[inline]
-    fn read_name(&mut self, first_char: char) -> TokenKind {
+    fn read_name(&mut self, first: char) -> TokenKind {
         let mut cursor = 1;
         let mut kw_buf = [0u8; MAX_KW_LEN];
         let mut keyword_candidate = true;
-        if first_char.is_ascii_lowercase() {
-            kw_buf[0] = first_char as u8;
+        if first.is_ascii_lowercase() {
+            kw_buf[0] = first as u8;
         } else {
             keyword_candidate = false;
         }
@@ -156,7 +152,7 @@ impl<'a> Lexer<'a> {
         }
         TokenKind::Ident
     }
-    // Consumes characters as long as a given condition is fulfilled
+    // Consumes characters that fulfil the given condition.
     #[inline]
     fn read_while(&mut self, condition: fn(char) -> bool) {
         while let Some(c) = self.peek() {
@@ -204,16 +200,16 @@ mod test {
 
     #[test]
     fn fn_call() {
-        let mut l = Lexer::new("let x = foo(42)");
-        assert_eq!(l.next().unwrap().kind, TokenKind::Let);
-        assert_eq!(l.next().unwrap().kind, TokenKind::Whitespace);
-        assert_eq!(l.next().unwrap().kind, TokenKind::Ident);
-        assert_eq!(l.next().unwrap().kind, TokenKind::Whitespace);
-        assert_eq!(l.next().unwrap().kind, TokenKind::Eq);
-        assert_eq!(l.next().unwrap().kind, TokenKind::Whitespace);
-        assert_eq!(l.next().unwrap().kind, TokenKind::Ident);
-        assert_eq!(l.next().unwrap().kind, TokenKind::ParensOpen);
-        matches!(l.next().unwrap().kind, TokenKind::Number(_));
-        assert_eq!(l.next().unwrap().kind, TokenKind::ParensClose);
+        let mut l = Lexer::new("let x = foo(0b1010)");
+        assert_matches!(l.next().unwrap().kind, TokenKind::Let);
+        assert_matches!(l.next().unwrap().kind, TokenKind::Whitespace);
+        assert_matches!(l.next().unwrap().kind, TokenKind::Ident);
+        assert_matches!(l.next().unwrap().kind, TokenKind::Whitespace);
+        assert_matches!(l.next().unwrap().kind, TokenKind::Eq);
+        assert_matches!(l.next().unwrap().kind, TokenKind::Whitespace);
+        assert_matches!(l.next().unwrap().kind, TokenKind::Ident);
+        assert_matches!(l.next().unwrap().kind, TokenKind::ParensOpen);
+        assert_matches!(l.next().unwrap().kind, TokenKind::Number(Binary));
+        assert_matches!(l.next().unwrap().kind, TokenKind::ParensClose);
     }
 }
