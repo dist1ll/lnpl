@@ -5,8 +5,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
-#![feature(core_intrinsics)]
-#![feature(stdsimd)]
+#![feature(assert_matches)]
 
 pub mod ast;
 pub mod lexer;
@@ -37,7 +36,7 @@ impl<'a> Parser<'a> {
             exprs: Default::default(),
             stmts: Default::default(),
         };
-        p.lexer.next_token(); // lexer should point at first valid token
+        p.lexer.next(); // lexer should point at first valid token
         p
     }
     pub fn parse(&mut self) {
@@ -56,8 +55,8 @@ impl<'a> Parser<'a> {
         let mut lhs_id = match &first.kind {
             TokenKind::BraceOpen => self.parse_expr_block(),
             TokenKind::ParensOpen => self.parse_expr_parens(),
-            TokenKind::Number => {
-                let number = parse_number(Base::Decimal, self.lexer.slice())
+            TokenKind::Number(base) => {
+                let number = parse_number(*base, self.lexer.slice())
                     .expect("parsing literal into number");
                 self.push_expr(Expr {
                     kind: ExprKind::Number(number),
@@ -83,7 +82,7 @@ impl<'a> Parser<'a> {
                         break;
                     }
                     // this eats the operator we peeked
-                    self.lexer.next_token();
+                    self.lexer.next();
 
                     self.next_non_whitespace()
                         .expect("operator can't terminate expression");
@@ -94,7 +93,7 @@ impl<'a> Parser<'a> {
                 }
                 Operator::StartEval => {
                     // eat the '('
-                    self.lexer.next_token();
+                    self.lexer.next();
                     lhs_id = self.parse_eval(lhs_id).expect("parse eval");
                 }
                 Operator::Statement => {
@@ -118,7 +117,7 @@ impl<'a> Parser<'a> {
         let ret = self.parse_expr(0).expect("no close parens");
         let next = self
             .lexer
-            .next_token()
+            .next()
             .expect("matching closing parenthesis");
         match next.kind {
             TokenKind::ParensClose => (),
@@ -227,13 +226,13 @@ impl<'a> Parser<'a> {
 
             if self
                 .lexer
-                .next_token()
+                .next()
                 .expect("matching closing parenthesis")
                 .kind
                 == TokenKind::Comma
             {
                 // eat the ','
-                self.lexer.next_token().unwrap();
+                self.lexer.next().unwrap();
                 i += 1;
                 if i >= MAX_FN_ARGS {
                     panic!("too many fn arguments. Maximum: {MAX_FN_ARGS}");
@@ -254,7 +253,7 @@ impl<'a> Parser<'a> {
     }
     /// Advances to the next non-whitespace token
     fn next_non_whitespace(&mut self) -> Option<Token> {
-        while let Some(t) = self.lexer.next_token() {
+        while let Some(t) = self.lexer.next() {
             match &t.kind {
                 TokenKind::Whitespace => continue,
                 _ => return Some(t),
@@ -267,7 +266,7 @@ impl<'a> Parser<'a> {
             use TokenKind::*;
             match t.kind {
                 Whitespace => {
-                    self.lexer.next_token();
+                    self.lexer.next();
                     continue;
                 }
                 Plus => return Some(Operator::Infix(BinOp::Add)),
@@ -371,9 +370,7 @@ mod test {
     macro_rules! extract_int {
         ($t:ident) => {
             match &$t.kind {
-                TokenKind::Literal(k) => match &k {
-                    LiteralKind::Int { base } => base.clone(),
-                },
+                TokenKind::Number(base) => *base,
                 _ => panic!(""),
             }
         };
@@ -381,13 +378,13 @@ mod test {
 
     #[test]
     pub fn number_overflow() {
-        let mut lexer = Lexer::new("18073701615");
-        let t = lexer.next_token().unwrap();
-        // assert_eq!(Ok(18073701615), parse_number(extract_int!(t), t.text));
+        let mut lexer = Lexer::new("1801615");
+        let t = lexer.next().unwrap();
+        assert_eq!(Ok(1801615), parse_number(extract_int!(t), lexer.slice()));
 
         let mut lexer = Lexer::new("18446744073709551616");
-        let t = lexer.next_token().unwrap();
-        // assert!(parse_number(extract_int!(t), t.text).is_err());
+        let t = lexer.next().unwrap();
+        assert!(parse_number(extract_int!(t), lexer.slice()).is_err());
     }
 
     #[test]

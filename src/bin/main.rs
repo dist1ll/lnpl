@@ -13,9 +13,9 @@ const SOURCE: &str = include_str!("../example.ln");
 fn main() {
     let start = Instant::now();
     let mut lexer = lnpl::lexer::Lexer::new(SOURCE);
-    let mut token = lexer.next_token();
+    let mut token = lexer.next();
     while token.is_some() {
-        token = lexer.next_token();
+        token = lexer.next();
     }
     let end = start.elapsed();
     println!("Time elapsed: {:?}", end);

@@ -25,6 +25,10 @@ pub enum TokenKind {
     Struct,
     Ln,
     While,
+    // -- Multi-Char Sequences
+    Whitespace,
+    Number(Base),
+    Ident,
     // -- Single Char --
     Eq = 61,
     // >
@@ -47,10 +51,6 @@ pub enum TokenKind {
     BraceOpen = 123,
     /// }
     BraceClose = 125,
-    // ----------------
-    Whitespace = 0xfd,
-    Number = 0xfe,
-    Ident = 0xff,
 }
 
 impl TokenKind {
@@ -121,7 +121,7 @@ pub fn keyword_hash(b: &[u8; 8]) -> (usize, Option<TokenKind>) {
     (hash, Some(keyword))
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Base {
     Decimal,
     Binary,
