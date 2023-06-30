@@ -46,7 +46,7 @@ impl<'a> Lexer<'a> {
         let kind = match self.advance()? {
             c if is_ident_prefix(c) => self.read_name(c),
             c if c.is_ascii_whitespace() => {
-                self.read_while(|c| c.is_ascii_whitespace());
+                self.advance_while(|c| c.is_ascii_whitespace());
                 TokenKind::Whitespace
             }
             c @ '0'..='9' => self.read_numeral(c),
@@ -91,28 +91,30 @@ impl<'a> Lexer<'a> {
     }
     #[inline]
     fn read_numeral(&mut self, first: char) -> TokenKind {
-        let second = match self.advance() {
+        let second = match self.peek() {
             None => return TokenKind::Number(Base::Decimal),
             Some(digit) => digit,
         };
         match first {
             '0' => match second {
                 '0'..='9' => {
-                    self.read_while(|c| c.is_ascii_digit());
+                    self.advance_while(|c| c.is_ascii_digit());
                     TokenKind::Number(Base::Decimal)
                 }
                 'b' => {
-                    self.read_while(|c| c == '0' || c == '1');
+                    self.advance(); // skips the `b`
+                    self.advance_while(|c| c == '0' || c == '1');
                     TokenKind::Number(Base::Binary)
                 }
                 'x' => {
-                    self.read_while(|c| c.is_ascii_hexdigit());
+                    self.advance(); // skips the `x`
+                    self.advance_while(|c| c.is_ascii_hexdigit());
                     TokenKind::Number(Base::Hex)
                 }
                 _ => TokenKind::Number(Base::Decimal),
             },
             _ => {
-                self.read_while(|c| c.is_ascii_digit());
+                self.advance_while(|c| c.is_ascii_digit());
                 TokenKind::Number(Base::Decimal)
             }
         }
@@ -154,7 +156,7 @@ impl<'a> Lexer<'a> {
     }
     // Consumes characters that fulfil the given condition.
     #[inline]
-    fn read_while(&mut self, condition: fn(char) -> bool) {
+    fn advance_while(&mut self, condition: fn(char) -> bool) {
         while let Some(c) = self.peek() {
             if !condition(*c) {
                 break;
@@ -178,8 +180,12 @@ mod test {
 
     #[test]
     fn number() {
+        let mut l = Lexer::new("0 ");
+        assert_matches!(l.next().unwrap().kind, TokenKind::Number(_));
+        assert_eq!(l.slice(), b"0");
+
         let mut l = Lexer::new("12384359");
-        matches!(l.next().unwrap().kind, TokenKind::Number(_));
+        assert_matches!(l.next().unwrap().kind, TokenKind::Number(_));
     }
 
     #[test]
@@ -194,6 +200,7 @@ mod test {
     fn number_hex() {
         let mut l = Lexer::new("0x1 0x12384359");
         assert_matches!(l.next().unwrap().kind, TokenKind::Number(Hex));
+        assert_eq!(l.slice().len(), 3);
         assert_matches!(l.next().unwrap().kind, TokenKind::Whitespace);
         assert_matches!(l.next().unwrap().kind, TokenKind::Number(Hex));
     }

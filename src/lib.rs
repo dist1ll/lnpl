@@ -337,7 +337,6 @@ impl<'a> Parser<'a> {
                                 depth + 3,
                                 false,
                             )),
-                            _ => panic!(""),
                         },
                     );
                 }

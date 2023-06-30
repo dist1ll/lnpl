@@ -16,32 +16,49 @@ pub struct Token {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(u8)]
 pub enum TokenKind {
-    // -- Keywords --
-    Class,
-    For,
-    Fn,
-    Let,
-    Match,
-    Struct,
+    /// Keyword `ln`
     Ln,
+    /// Keyword `class`
+    Class,
+    /// Keyword `for`
+    For,
+    /// Keyword `fn`
+    Fn,
+    /// Keyword `let`
+    Let,
+    /// Keyword `match`
+    Match,
+    /// Keyword `struct`
+    Struct,
+    ///
     While,
-    // -- Multi-Char Sequences
+    /// Whitespace sequencee
     Whitespace,
+    /// Number literal
     Number(Base),
+    /// Identifier
     Ident,
-    // -- Single Char --
+    /// =
     Eq = 61,
-    // >
+    /// >
     Gt = 62,
+    /// +
     Plus = 43,
+    /// -
     Minus = 45,
+    /// *
     Star = 42,
+    /// :
     Colon = 58,
+    /// ,
     Comma = 44,
+    /// .
     Dot = 46,
+    /// ;
     Semicolon = 59,
-    // ()
+    /// (
     ParensOpen = 40,
+    /// )
     ParensClose = 41,
     /// [
     BracketOpen = 91,
