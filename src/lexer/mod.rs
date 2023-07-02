@@ -16,7 +16,6 @@ pub struct Lexer<'a> {
     pub chars: Peekable<Chars<'a>>,
     text: &'a [u8],
     pos: usize,
-    peeked: Option<Token>,
     current: Option<Token>,
     current_len: u32,
 }
@@ -27,7 +26,6 @@ impl<'a> Lexer<'a> {
             chars: s.chars().peekable(),
             text: s.as_bytes(),
             pos: 0,
-            peeked: None,
             current: None,
             current_len: 0,
         }
@@ -42,6 +40,7 @@ impl<'a> Lexer<'a> {
     }
     #[inline]
     pub fn next(&mut self) -> Option<Token> {
+        // return peeked token if it was set
         let old_pos = self.pos;
         let kind = match self.advance()? {
             c if is_ident_prefix(c) => self.read_name(c),
@@ -72,26 +71,22 @@ impl<'a> Lexer<'a> {
         self.current.clone()
     }
     #[inline]
-    pub fn peek_token(&mut self) -> Option<&Token> {
-        if self.peeked.is_some() {
-            return self.peeked.as_ref();
-        }
-        self.peeked = self.next().clone();
-        self.peeked.as_ref()
-    }
-    // use advance() instead of self.text.next()
-    #[inline]
     fn advance(&mut self) -> Option<char> {
-        self.pos += 1;
-        self.chars.next()
+        match self.chars.next() {
+            None => return None,
+            Some(next) => {
+                self.pos += 1;
+                Some(next)
+            }
+        }
     }
     #[inline]
-    fn peek(&mut self) -> Option<&char> {
-        self.chars.peek()
+    fn peek_char(&mut self) -> Option<char> {
+        self.chars.peek().map(|c| *c)
     }
     #[inline]
     fn read_numeral(&mut self, first: char) -> TokenKind {
-        let second = match self.peek() {
+        let second = match self.peek_char() {
             None => return TokenKind::Number(Base::Decimal),
             Some(digit) => digit,
         };
@@ -157,8 +152,8 @@ impl<'a> Lexer<'a> {
     // Consumes characters that fulfil the given condition.
     #[inline]
     fn advance_while(&mut self, condition: fn(char) -> bool) {
-        while let Some(c) = self.peek() {
-            if !condition(*c) {
+        while let Some(c) = self.peek_char() {
+            if !condition(c) {
                 break;
             }
             self.advance();

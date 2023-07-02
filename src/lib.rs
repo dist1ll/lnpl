@@ -71,9 +71,10 @@ impl<'a> Parser<'a> {
             }
             t => panic!("expected expression, found `{t:?}`"),
         };
-        // Operator Position
-        // Pratt-Parsing loop. Peeks and consumes operators.
-        while let Some(op) = self.peek_operator() {
+        // (Pratt-parsing) Consumes token, and checks if it's an operator.
+        // All non-operator tokens in operator position terminate the expr.
+        self.lexer.next();
+        while let Some(op) = self.consume_operator() {
             match op {
                 Operator::Infix(b) => {
                     let bp = b.binding_power();
@@ -81,9 +82,6 @@ impl<'a> Parser<'a> {
                         // bind on a precedence cliff
                         break;
                     }
-                    // this eats the operator we peeked
-                    self.lexer.next();
-
                     self.next_non_whitespace()
                         .expect("operator can't terminate expression");
                     let rhs_id = self.parse_expr(bp.1).unwrap();
@@ -92,8 +90,6 @@ impl<'a> Parser<'a> {
                     });
                 }
                 Operator::StartEval => {
-                    // eat the '('
-                    self.lexer.next();
                     lhs_id = self.parse_eval(lhs_id).expect("parse eval");
                 }
                 Operator::Statement => {
@@ -117,14 +113,15 @@ impl<'a> Parser<'a> {
         let ret = self.parse_expr(0).expect("no close parens");
         let next = self
             .lexer
-            .next()
+            .current_token()
             .expect("matching closing parenthesis");
+
         match next.kind {
             TokenKind::ParensClose => (),
             TokenKind::Semicolon => {
                 panic!("parenthesized expressions cannot contain statements")
             }
-            _ => panic!("expected closing parenthesis ')'"),
+            k => panic!("expected closing parenthesis ')', found {:?}", k),
         };
         ret
     }
@@ -148,8 +145,11 @@ impl<'a> Parser<'a> {
         {
             panic!("expected '{{' to start block expression");
         }
+        // skip `{`
+        self.lexer.next();
 
-        let mut next = self.next_non_whitespace().expect("missing '}'");
+        let mut next =
+            self.next_or_current_non_whitespace().expect("missing '}'");
         let mut block_members = 0;
         let mut stmts: StackVec<Stmt, MAX_STMTS_PER_BLOCK> =
             Default::default();
@@ -161,12 +161,12 @@ impl<'a> Parser<'a> {
         while next.kind != TokenKind::BraceClose {
             block_members += 1;
             expr = self.parse_expr(0).expect("missing '}'");
-            next = self.next_non_whitespace().expect("missing '}'");
+            next = self.next_or_current_non_whitespace().expect("missing '}'");
 
             match next.kind {
                 TokenKind::Semicolon => (),
                 TokenKind::BraceClose => break,
-                _ => panic!("block expressions need to end with '}}'"),
+                k => panic!("block expr need to end with '}}', found {:?}", k),
             }
             // add statement to current expr block
             stmts
@@ -198,11 +198,11 @@ impl<'a> Parser<'a> {
         })
     }
     /// Parses the inside of an evaluation operation, starting from the first
-    /// token after the opening parenthesis.
+    /// token after the opening parenthesis. Ends at the first token after `)`.
     /// ```
-    ///   foo(a, b, c)
-    ///       ^
-    ///   start here
+    ///   foo(a, b, c, d, e, f) 
+    ///       ^                ^
+    ///   start here       end here
     /// ```
     fn parse_eval(&mut self, caller: ExprRef) -> Option<ExprRef> {
         let cursor = self
@@ -226,7 +226,7 @@ impl<'a> Parser<'a> {
 
             if self
                 .lexer
-                .next()
+                .current_token()
                 .expect("matching closing parenthesis")
                 .kind
                 == TokenKind::Comma
@@ -245,10 +245,23 @@ impl<'a> Parser<'a> {
         let args = self.push_expr_slice(&args[0..(i + 1)]);
 
         match &self.lexer.current_token().unwrap().kind {
-            TokenKind::ParensClose => Some(self.push_expr(Expr {
-                kind: ExprKind::Eval(caller, args),
-            })),
+            TokenKind::ParensClose => {
+                // skip `)`
+                self.lexer.next();
+                Some(self.push_expr(Expr {
+                    kind: ExprKind::Eval(caller, args),
+                }))
+            }
             t => panic!("wrong eval expression termination token: {t:?}"),
+        }
+    }
+    /// Advances to the next non-whitespace token
+    fn next_or_current_non_whitespace(&mut self) -> Option<Token> {
+        match self.lexer.current_token() {
+            Some(Token {
+                kind: TokenKind::Whitespace,
+            }) => self.lexer.next(),
+            current => current,
         }
     }
     /// Advances to the next non-whitespace token
@@ -261,12 +274,14 @@ impl<'a> Parser<'a> {
         }
         None
     }
-    fn peek_operator(&mut self) -> Option<Operator> {
-        while let Some(t) = self.lexer.peek_token() {
-            use TokenKind::*;
+    /// Starts from current token, consuming whitespace and finally an operator.
+    fn consume_operator(&mut self) -> Option<Operator> {
+        use TokenKind::*;
+        let mut current = self.lexer.current_token();
+        while let Some(t) = current {
             match t.kind {
                 Whitespace => {
-                    self.lexer.next();
+                    current = self.lexer.next();
                     continue;
                 }
                 Plus => return Some(Operator::Infix(BinOp::Add)),
@@ -280,11 +295,13 @@ impl<'a> Parser<'a> {
         None
     }
     /// Pushes expression to the expr buffer and returns its id.
+    #[inline]
     fn push_expr(&mut self, expr: Expr<'a>) -> ExprRef {
         self.exprs.push(expr);
         ExprRef::new(self.exprs.len() - 1)
     }
     /// Pushes argument to the args buffer and returns the argument id
+    #[inline]
     fn push_expr_slice(&mut self, expr_ids: &[Expr<'a>]) -> Arguments {
         let len = self.exprs.len();
         assert!((len + expr_ids.len()) <= ExprRef::MAX);
@@ -292,11 +309,11 @@ impl<'a> Parser<'a> {
         Arguments::new(len, expr_ids.len())
     }
     /// Pushes statements to the stmts buffer and returns the statement id
+    #[inline]
     fn push_stmts(&mut self, stmts: &[Stmt]) -> StmtSlice {
         let len = stmts.len();
         assert!(len > 0, "non-zero number of statements expected");
         self.stmts.extend_from_slice(stmts);
-        println!("making a slice: {} and {} ", (self.stmts.len() - len), len);
         StmtSlice::new(self.stmts.len() - len, len)
     }
     /// Pretty-print the AST
@@ -442,4 +459,5 @@ mod test {
             ExprKind::Block(ExprRef::new(10), StmtSlice::new(0, 3))
         );
     }
+
 }
