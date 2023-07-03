@@ -7,7 +7,7 @@
  */
 pub mod common;
 
-use common::{keyword_hash, Base, Token, TokenKind, KEYWORD_MAP, MAX_KW_LEN};
+use common::{keyword_hash, Base, Token, KEYWORD_MAP, MAX_KW_LEN};
 use std::{iter::Peekable, str::Chars};
 
 /// Generic lexer implementation. This is used as a fallback implementation
@@ -46,28 +46,28 @@ impl<'a> Lexer<'a> {
             c if is_ident_prefix(c) => self.read_name(c),
             c if c.is_ascii_whitespace() => {
                 self.advance_while(|c| c.is_ascii_whitespace());
-                TokenKind::Whitespace
+                Token::Whitespace
             }
             c @ '0'..='9' => self.read_numeral(c),
-            ';' => TokenKind::Semicolon,
-            ',' => TokenKind::Comma,
-            '.' => TokenKind::Dot,
-            '(' => TokenKind::ParensOpen,
-            ')' => TokenKind::ParensClose,
-            '{' => TokenKind::BraceOpen,
-            '}' => TokenKind::BraceClose,
-            '[' => TokenKind::BracketOpen,
-            ']' => TokenKind::BracketClose,
-            '+' => TokenKind::Plus,
-            '-' => TokenKind::Minus,
-            '*' => TokenKind::Star,
-            '=' => TokenKind::Eq,
-            '>' => TokenKind::Gt,
-            ':' => TokenKind::Colon,
-            _ => TokenKind::Ident,
+            ';' => Token::Semicolon,
+            ',' => Token::Comma,
+            '.' => Token::Dot,
+            '(' => Token::ParensOpen,
+            ')' => Token::ParensClose,
+            '{' => Token::BraceOpen,
+            '}' => Token::BraceClose,
+            '[' => Token::BracketOpen,
+            ']' => Token::BracketClose,
+            '+' => Token::Plus,
+            '-' => Token::Minus,
+            '*' => Token::Star,
+            '=' => Token::Eq,
+            '>' => Token::Gt,
+            ':' => Token::Colon,
+            _ => Token::Ident,
         };
         self.current_len = self.pos as u32 - old_pos as u32;
-        self.current = Some(Token { kind });
+        self.current = Some(kind);
         self.current.clone()
     }
     #[inline]
@@ -85,38 +85,38 @@ impl<'a> Lexer<'a> {
         self.chars.peek().map(|c| *c)
     }
     #[inline]
-    fn read_numeral(&mut self, first: char) -> TokenKind {
+    fn read_numeral(&mut self, first: char) -> Token {
         let second = match self.peek_char() {
-            None => return TokenKind::Number(Base::Decimal),
+            None => return Token::Number(Base::Decimal),
             Some(digit) => digit,
         };
         match first {
             '0' => match second {
                 '0'..='9' => {
                     self.advance_while(|c| c.is_ascii_digit());
-                    TokenKind::Number(Base::Decimal)
+                    Token::Number(Base::Decimal)
                 }
                 'b' => {
                     self.advance(); // skips the `b`
                     self.advance_while(|c| c == '0' || c == '1');
-                    TokenKind::Number(Base::Binary)
+                    Token::Number(Base::Binary)
                 }
                 'x' => {
                     self.advance(); // skips the `x`
                     self.advance_while(|c| c.is_ascii_hexdigit());
-                    TokenKind::Number(Base::Hex)
+                    Token::Number(Base::Hex)
                 }
-                _ => TokenKind::Number(Base::Decimal),
+                _ => Token::Number(Base::Decimal),
             },
             _ => {
                 self.advance_while(|c| c.is_ascii_digit());
-                TokenKind::Number(Base::Decimal)
+                Token::Number(Base::Decimal)
             }
         }
     }
     /// Returns either Ident or Keyword
     #[inline]
-    fn read_name(&mut self, first: char) -> TokenKind {
+    fn read_name(&mut self, first: char) -> Token {
         let mut cursor = 1;
         let mut kw_buf = [0u8; MAX_KW_LEN];
         let mut keyword_candidate = true;
@@ -147,7 +147,7 @@ impl<'a> Lexer<'a> {
                 return keyword.expect("hash fn and keyword map don't match");
             }
         }
-        TokenKind::Ident
+        Token::Ident
     }
     // Consumes characters that fulfil the given condition.
     #[inline]
@@ -170,48 +170,48 @@ pub fn is_ident_prefix(c: char) -> bool {
 #[cfg(test)]
 mod test {
     use super::Lexer;
-    use super::{Base::*, TokenKind};
+    use super::{Base::*, Token};
     use std::assert_matches::assert_matches;
 
     #[test]
     fn number() {
         let mut l = Lexer::new("0 ");
-        assert_matches!(l.next().unwrap().kind, TokenKind::Number(_));
+        assert_matches!(l.next().unwrap(), Token::Number(_));
         assert_eq!(l.slice(), b"0");
 
         let mut l = Lexer::new("12384359");
-        assert_matches!(l.next().unwrap().kind, TokenKind::Number(_));
+        assert_matches!(l.next().unwrap(), Token::Number(_));
     }
 
     #[test]
     fn number_binary() {
         let mut l = Lexer::new("0b1 0b1010101011");
-        assert_matches!(l.next().unwrap().kind, TokenKind::Number(Binary));
-        assert_matches!(l.next().unwrap().kind, TokenKind::Whitespace);
-        assert_matches!(l.next().unwrap().kind, TokenKind::Number(Binary));
+        assert_matches!(l.next().unwrap(), Token::Number(Binary));
+        assert_matches!(l.next().unwrap(), Token::Whitespace);
+        assert_matches!(l.next().unwrap(), Token::Number(Binary));
     }
 
     #[test]
     fn number_hex() {
         let mut l = Lexer::new("0x1 0x12384359");
-        assert_matches!(l.next().unwrap().kind, TokenKind::Number(Hex));
+        assert_matches!(l.next().unwrap(), Token::Number(Hex));
         assert_eq!(l.slice().len(), 3);
-        assert_matches!(l.next().unwrap().kind, TokenKind::Whitespace);
-        assert_matches!(l.next().unwrap().kind, TokenKind::Number(Hex));
+        assert_matches!(l.next().unwrap(), Token::Whitespace);
+        assert_matches!(l.next().unwrap(), Token::Number(Hex));
     }
 
     #[test]
     fn fn_call() {
         let mut l = Lexer::new("let x = foo(0b1010)");
-        assert_matches!(l.next().unwrap().kind, TokenKind::Let);
-        assert_matches!(l.next().unwrap().kind, TokenKind::Whitespace);
-        assert_matches!(l.next().unwrap().kind, TokenKind::Ident);
-        assert_matches!(l.next().unwrap().kind, TokenKind::Whitespace);
-        assert_matches!(l.next().unwrap().kind, TokenKind::Eq);
-        assert_matches!(l.next().unwrap().kind, TokenKind::Whitespace);
-        assert_matches!(l.next().unwrap().kind, TokenKind::Ident);
-        assert_matches!(l.next().unwrap().kind, TokenKind::ParensOpen);
-        assert_matches!(l.next().unwrap().kind, TokenKind::Number(Binary));
-        assert_matches!(l.next().unwrap().kind, TokenKind::ParensClose);
+        assert_matches!(l.next().unwrap(), Token::Let);
+        assert_matches!(l.next().unwrap(), Token::Whitespace);
+        assert_matches!(l.next().unwrap(), Token::Ident);
+        assert_matches!(l.next().unwrap(), Token::Whitespace);
+        assert_matches!(l.next().unwrap(), Token::Eq);
+        assert_matches!(l.next().unwrap(), Token::Whitespace);
+        assert_matches!(l.next().unwrap(), Token::Ident);
+        assert_matches!(l.next().unwrap(), Token::ParensOpen);
+        assert_matches!(l.next().unwrap(), Token::Number(Binary));
+        assert_matches!(l.next().unwrap(), Token::ParensClose);
     }
 }

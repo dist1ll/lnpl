@@ -8,14 +8,9 @@
 
 //! This module contains common lexer-related definitions.
 
-#[derive(Debug, Clone)]
-pub struct Token {
-    pub kind: TokenKind,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(u8)]
-pub enum TokenKind {
+pub enum Token {
     /// Keyword `ln`
     Ln,
     /// Keyword `class`
@@ -70,10 +65,10 @@ pub enum TokenKind {
     BraceClose = 125,
 }
 
-impl TokenKind {
+impl Token {
     pub fn bp(&self) -> (u8, u8) {
         match self {
-            TokenKind::Plus => (1, 2),
+            Token::Plus => (1, 2),
             _ => panic!("this token is not an expression operator"),
         }
     }
@@ -120,19 +115,19 @@ pub const KW_MAGIC_NUMBER: usize = 6;
 // TODO: Improve perfect hash function with something that doesn't multiple
 // nested and dependent instructions
 #[inline]
-pub fn keyword_hash(b: &[u8; 8]) -> (usize, Option<TokenKind>) {
+pub fn keyword_hash(b: &[u8; 8]) -> (usize, Option<Token>) {
     let hash =
         (b[0] as usize + KW_MAGIC_NUMBER + b[2] as usize * KW_MAGIC_NUMBER)
             & 0b1111;
     let keyword = match hash {
-        2 => TokenKind::Ln,
-        3 => TokenKind::While,
-        5 => TokenKind::Struct,
-        8 => TokenKind::For,
-        10 => TokenKind::Let,
-        11 => TokenKind::Match,
-        12 => TokenKind::Fn,
-        15 => TokenKind::Class,
+        2 => Token::Ln,
+        3 => Token::While,
+        5 => Token::Struct,
+        8 => Token::For,
+        10 => Token::Let,
+        11 => Token::Match,
+        12 => Token::Fn,
+        15 => Token::Class,
         _ => return (hash, None),
     };
     (hash, Some(keyword))
@@ -144,4 +139,3 @@ pub enum Base {
     Binary,
     Hex,
 }
-

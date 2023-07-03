@@ -18,7 +18,7 @@ use ast::{
     StmtKind, StmtSlice, MAX_FN_ARGS, MAX_STMTS_PER_BLOCK,
 };
 use lexer::{
-    common::{Base, Token, TokenKind},
+    common::{Base, Token},
     Lexer,
 };
 use stackvec::StackVec;
@@ -50,17 +50,17 @@ impl<'a> Parser<'a> {
     fn parse_expr(&mut self, min_bp: u8) -> Option<ExprRef> {
         let first = self.lexer.current().expect("non-whitespace tokens");
         // Start of expression
-        let mut lhs_id = match &first.kind {
-            TokenKind::BraceOpen => self.parse_expr_block(),
-            TokenKind::ParensOpen => self.parse_expr_parens(),
-            TokenKind::Number(base) => {
+        let mut lhs_id = match &first {
+            Token::BraceOpen => self.parse_expr_block(),
+            Token::ParensOpen => self.parse_expr_parens(),
+            Token::Number(base) => {
                 let number = parse_number(*base, self.lexer.slice())
                     .expect("parsing literal into number");
                 self.push_expr(Expr {
                     kind: ExprKind::Number(number),
                 })
             }
-            TokenKind::Ident => {
+            Token::Ident => {
                 let text =
                     from_utf8(self.lexer.slice()).expect("convert to utf-8");
                 self.push_expr(Expr {
@@ -111,15 +111,15 @@ impl<'a> Parser<'a> {
     #[inline]
     fn parse_expr_parens(&mut self) -> ExprRef {
         debug_assert_eq!(
-            self.lexer.current().unwrap().kind,
-            TokenKind::ParensOpen,
+            self.lexer.current().unwrap(),
+            Token::ParensOpen,
             "parenthesized expression needs to start with `(`"
         );
 
         let next = self.next_non_wspace().expect("no close parens");
 
         // empty parentheses ()
-        if next.kind == TokenKind::ParensClose {
+        if next == Token::ParensClose {
             return self.push_expr(Expr {
                 kind: ExprKind::Unit,
             });
@@ -127,9 +127,9 @@ impl<'a> Parser<'a> {
         let ret = self.parse_expr(0).expect("no close parens");
         let next = self.lexer.current().expect("matching closing parenthesis");
 
-        match next.kind {
-            TokenKind::ParensClose => (),
-            TokenKind::Semicolon => {
+        match next {
+            Token::ParensClose => (),
+            Token::Semicolon => {
                 panic!("parenthesized expressions cannot contain statements")
             }
             k => panic!("expected closing parenthesis ')', found {:?}", k),
@@ -153,8 +153,8 @@ impl<'a> Parser<'a> {
     #[inline]
     fn parse_expr_block(&mut self) -> ExprRef {
         debug_assert_eq!(
-            self.lexer.current().unwrap().kind,
-            TokenKind::BraceOpen,
+            self.lexer.current().unwrap(),
+            Token::BraceOpen,
             "block expression needs to start with `{{`"
         );
 
@@ -168,14 +168,14 @@ impl<'a> Parser<'a> {
         // Iterates over statements and expressions inside the block expr.
         // If we find a statement, we consume it, add it to the list of
         // statements, and continue looping until we find an expression.
-        while next.kind != TokenKind::BraceClose {
+        while next != Token::BraceClose {
             block_members += 1;
             expr = self.parse_expr(0).expect("missing '}'");
             next = self.lexer.current().expect("missing '}'");
 
-            match next.kind {
-                TokenKind::Semicolon => (),
-                TokenKind::BraceClose => break,
+            match next {
+                Token::Semicolon => (),
+                Token::BraceClose => break,
                 k => panic!("block expr need to end with '}}', found {:?}", k),
             }
             // add statement to current expr block
@@ -216,14 +216,14 @@ impl<'a> Parser<'a> {
     #[inline]
     fn parse_eval(&mut self, caller: ExprRef) -> Option<ExprRef> {
         debug_assert_eq!(
-            self.lexer.current().unwrap().kind,
-            TokenKind::ParensOpen,
+            self.lexer.current().unwrap(),
+            Token::ParensOpen,
             "rhs of eval expression needs to start with `(`"
         );
         let cursor = self.next_non_wspace().expect("has closing parenthesis");
 
         // no arguments
-        if cursor.kind == TokenKind::ParensClose {
+        if cursor == Token::ParensClose {
             return Some(self.push_expr(Expr {
                 kind: ExprKind::Eval(caller, Default::default()),
             }));
@@ -238,12 +238,8 @@ impl<'a> Parser<'a> {
             // EX: we already asserted existence of at least 1 expression
             args[i] = self.exprs.pop().unwrap();
 
-            if self
-                .lexer
-                .current()
-                .expect("matching closing parenthesis")
-                .kind
-                == TokenKind::Comma
+            if self.lexer.current().expect("matching closing parenthesis")
+                == Token::Comma
             {
                 // eat the ',' and any subsequent whitespace
                 self.next_non_wspace();
@@ -258,8 +254,8 @@ impl<'a> Parser<'a> {
 
         let args = self.push_expr_slice(&args[0..(i + 1)]);
 
-        match &self.lexer.current().unwrap().kind {
-            TokenKind::ParensClose => Some(self.push_expr(Expr {
+        match &self.lexer.current().unwrap() {
+            Token::ParensClose => Some(self.push_expr(Expr {
                 kind: ExprKind::Eval(caller, args),
             })),
             t => panic!("wrong eval expression termination token: {t:?}"),
@@ -269,8 +265,8 @@ impl<'a> Parser<'a> {
     #[inline]
     fn next_non_wspace(&mut self) -> Option<Token> {
         while let Some(t) = self.lexer.next() {
-            match t.kind {
-                TokenKind::Whitespace => continue,
+            match t {
+                Token::Whitespace => continue,
                 _ => return Some(t),
             }
         }
@@ -280,10 +276,10 @@ impl<'a> Parser<'a> {
     /// The operator returned by this function equals `Lexer::current`.
     #[inline]
     fn consume_operator(&mut self) -> Option<Operator> {
-        use TokenKind::*;
+        use Token::*;
         let mut current = self.lexer.current();
         while let Some(t) = current {
-            match t.kind {
+            match t {
                 Whitespace => {
                     current = self.lexer.next();
                     continue;
@@ -390,8 +386,8 @@ mod test {
     use super::*;
     macro_rules! extract_int {
         ($t:ident) => {
-            match &$t.kind {
-                TokenKind::Number(base) => *base,
+            match &$t {
+                Token::Number(base) => *base,
                 _ => panic!(""),
             }
         };
@@ -463,5 +459,6 @@ mod test {
             p.exprs.get(ExprRef::new(11)).kind,
             ExprKind::Block(ExprRef::new(10), StmtSlice::new(0, 3))
         );
+        assert_eq!(p.exprs.get(ExprRef::new(10)).kind, ExprKind::Unit);
     }
 }
