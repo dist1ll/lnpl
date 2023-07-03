@@ -31,7 +31,7 @@ impl<'a> Lexer<'a> {
         }
     }
     #[inline]
-    pub fn current_token(&mut self) -> Option<Token> {
+    pub fn current(&mut self) -> Option<Token> {
         self.current.clone()
     }
     #[inline]
