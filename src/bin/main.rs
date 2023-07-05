@@ -6,19 +6,12 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
-use std::{hint::black_box, time::Instant};
+use lnpl::Parser;
 
 const SOURCE: &str = include_str!("../example.ln");
 
 fn main() {
-    let start = Instant::now();
-    let mut lexer = lnpl::lexer::Lexer::new(SOURCE);
-    let mut token = lexer.next();
-    while token.is_some() {
-        token = lexer.next();
-    }
-    let end = start.elapsed();
-    println!("Time elapsed: {:?}", end);
-    black_box(token);
-    black_box(lexer);
+    let mut p = Parser::new(SOURCE);
+    p.parse();
+    p.pprint_ast();
 }

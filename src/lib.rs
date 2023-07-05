@@ -11,11 +11,11 @@ pub mod ast;
 pub mod lexer;
 pub mod stackvec;
 
-use std::str::from_utf8;
+use std::{str::from_utf8, collections::BTreeMap};
 
 use ast::{
-    Arguments, BinOp, Container, Expr, ExprKind, ExprRef, Operator, Stmt,
-    StmtKind, StmtSlice, MAX_FN_ARGS, MAX_STMTS_PER_BLOCK,
+    Arguments, BinOp, Container, Expr, ExprKind, ExprRef, Ident, Operator,
+    Stmt, StmtKind, StmtSlice, MAX_FN_ARGS, MAX_STMTS_PER_BLOCK, SymbolRef,
 };
 use lexer::{
     common::{Base, Token},
@@ -25,8 +25,10 @@ use stackvec::StackVec;
 
 pub struct Parser<'a> {
     lexer: Lexer<'a>,
-    exprs: Container<Expr<'a>>,
+    exprs: Container<Expr>,
     stmts: Container<Stmt>,
+    // FIXME: replace with efficient lookup table
+    idents: BTreeMap<SymbolRef, Ident<'a>>, 
 }
 
 impl<'a> Parser<'a> {
@@ -35,6 +37,7 @@ impl<'a> Parser<'a> {
             lexer: Lexer::new(s),
             exprs: Default::default(),
             stmts: Default::default(),
+            idents: Default::default(),
         };
         // lexer should point at first non-whitespace token.
         p.next_non_wspace();
@@ -64,7 +67,7 @@ impl<'a> Parser<'a> {
                 let text =
                     from_utf8(self.lexer.slice()).expect("convert to utf-8");
                 self.push_expr(Expr {
-                    kind: ExprKind::Ident(text),
+                    kind: ExprKind::Ident(SymbolRef(0)),
                 })
             }
             t => panic!("expected expression, found `{t:?}`"),
@@ -296,13 +299,13 @@ impl<'a> Parser<'a> {
     }
     /// Pushes expression to the expr buffer and returns its id.
     #[inline]
-    fn push_expr(&mut self, expr: Expr<'a>) -> ExprRef {
+    fn push_expr(&mut self, expr: Expr) -> ExprRef {
         self.exprs.push(expr);
         ExprRef::new(self.exprs.len() - 1)
     }
     /// Pushes argument to the args buffer and returns the argument id
     #[inline]
-    fn push_expr_slice(&mut self, expr_ids: &[Expr<'a>]) -> Arguments {
+    fn push_expr_slice(&mut self, expr_ids: &[Expr]) -> Arguments {
         let len = self.exprs.len();
         assert!((len + expr_ids.len()) <= ExprRef::MAX);
         self.exprs.extend_from_slice(expr_ids);
@@ -336,10 +339,10 @@ impl<'a> Parser<'a> {
                     stack.push((self.exprs.get(r), depth + 3, true));
                     stack.push((self.exprs.get(l), depth + 3, false));
                 }
-                ExprKind::Ident(ref n) => println!("({n})"),
+                ExprKind::Ident(ref n) => println!("({:?})", n.0),
                 ExprKind::Unit => println!("()"),
                 ExprKind::Eval(caller, args) => {
-                    println!("(eval: {:?})", self.exprs.get(caller));
+                    println!("(eval: {:?})", self.exprs.get(caller).kind);
                     self.exprs.get_slice(args).iter().rev().for_each(|expr| {
                         stack.push((expr, depth + 3, true));
                     });
@@ -349,11 +352,12 @@ impl<'a> Parser<'a> {
                     stack.push((self.exprs.get(expr), depth + 3, true));
                     self.stmts.get_slice(stmt_ref).iter().rev().for_each(
                         |s| match s.kind {
-                            StmtKind::Expr(expr_id) => stack.push((
-                                self.exprs.get(expr_id),
+                            StmtKind::Expr(expr_ref) => stack.push((
+                                self.exprs.get(expr_ref),
                                 depth + 3,
                                 false,
                             )),
+                            StmtKind::Let(ident_ref, expr_ref) => {}
                         },
                     );
                 }
@@ -382,7 +386,6 @@ fn parse_number(base: Base, s: &[u8]) -> Result<usize, &'static str> {
 
 #[cfg(test)]
 mod test {
-
     use super::*;
     macro_rules! extract_int {
         ($t:ident) => {
@@ -453,12 +456,15 @@ mod test {
 
     #[test]
     pub fn stmt_simple_expr() {
+        // weird whitespace on purpose
         let mut p = Parser::new("2+ ( { f(2+1); 2; 2 +3; } )");
         p.parse();
-        assert_eq!(
-            p.exprs.get(ExprRef::new(11)).kind,
-            ExprKind::Block(ExprRef::new(10), StmtSlice::new(0, 3))
-        );
-        assert_eq!(p.exprs.get(ExprRef::new(10)).kind, ExprKind::Unit);
+        match p.exprs.get(ExprRef::new(11)).kind {
+            ExprKind::Block(end, slice) => {
+                assert_eq!(p.exprs.get(end).kind, ExprKind::Unit);
+                assert_eq!(p.stmts.get_slice(slice).len(), 3);
+            }
+            ref expr => panic!("unexpected expression type: {:?}", expr),
+        }
     }
 }

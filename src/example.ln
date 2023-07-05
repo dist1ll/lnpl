@@ -1,1 +1,5 @@
-ln foo fn() { }
+{
+	stmt1;
+	stmt2;
+	x + foo(a, b + c);
+}

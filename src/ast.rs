@@ -19,18 +19,21 @@ pub enum ItemKind {
 pub struct Stmt {
     pub kind: StmtKind,
 }
+// TODO: StmtKind consumes too much memory. Consider using unstable features.
 #[derive(Debug, Clone)]
 pub enum StmtKind {
     /// An expression + semicolon, like `foo();`, `a + b;`, `{ let x = 5; };`
     Expr(ExprRef),
+    /// A let binding
+    Let(SymbolRef, ExprRef),
 }
-// ln { 324 }
+
 #[derive(Default, Debug, Clone)]
-pub struct Expr<'a> {
-    pub kind: ExprKind<'a>,
+pub struct Expr {
+    pub kind: ExprKind,
 }
 #[derive(Default, Debug, Clone, PartialEq)]
-pub enum ExprKind<'a> {
+pub enum ExprKind {
     #[default]
     Unit,
     /// A number literal
@@ -38,13 +41,19 @@ pub enum ExprKind<'a> {
     /// A binary operation (e.g. `+`, `-`)
     Binary(BinOp, ExprRef, ExprRef),
     /// An identifier (variable, type, function name)
-    Ident(&'a str),
-    /// `()`
+    Ident(SymbolRef),
     /// Evaluation operator (e.g. `foo()`, `Bar(1, 2)`)
     Eval(ExprRef, Arguments),
     /// Block expression delimited by `{}`
     Block(ExprRef, StmtSlice),
 }
+
+#[derive(Default, Debug, Clone, Copy, PartialEq)]
+pub struct Ident<'a>(pub &'a str);
+
+/// An unique reference for interned strings. Used for bi-directional lookup.
+#[derive(Default, Debug, Clone, Copy, PartialEq)]
+pub struct SymbolRef(pub u32);
 
 pub struct Container<T: Clone>(Vec<T>);
 impl<T: Clone> Container<T> {
@@ -93,6 +102,7 @@ pub trait ContainerRange<T: Clone> {
 
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
 pub struct ExprRef(u32);
+
 impl ExprRef {
     pub const MAX: usize = (1 << 22);
     pub fn new(value: usize) -> Self {
@@ -100,7 +110,7 @@ impl ExprRef {
         Self(value as u32)
     }
 }
-impl<'a> ContainerIndex<Expr<'a>> for ExprRef {
+impl ContainerIndex<Expr> for ExprRef {
     fn index(&self) -> usize {
         self.0 as usize
     }
@@ -112,6 +122,7 @@ pub struct Arguments(u32);
 impl Arguments {
     pub fn new(index: usize, count: usize) -> Self {
         assert!((index + count) < ExprRef::MAX);
+        assert!(count < 0xff, "exceeded maximum number of arguments (255)");
         let upper = (index as u32) << 8;
         let lower = (count as u32) & 0xff;
         Self(upper | lower)
@@ -120,7 +131,7 @@ impl Arguments {
         (self.0 & 0xff) as usize
     }
 }
-impl<'a> ContainerRange<Expr<'a>> for Arguments {
+impl ContainerRange<Expr> for Arguments {
     fn range(&self) -> Range<usize> {
         let lower = (self.0) & 0xff;
         let upper = (self.0) >> 8;
@@ -131,6 +142,7 @@ impl<'a> ContainerRange<Expr<'a>> for Arguments {
 /// StmtSlice is a fat pointer into [`Container<Stmt>`]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct StmtSlice(u32);
+
 impl ContainerRange<Stmt> for StmtSlice {
     fn range(&self) -> Range<usize> {
         let index = (self.0 >> 8) as usize;
