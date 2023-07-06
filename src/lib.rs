@@ -6,17 +6,20 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 #![feature(assert_matches)]
+#![feature(map_try_insert)]
 
 pub mod ast;
+pub mod interner;
 pub mod lexer;
 pub mod stackvec;
 
-use std::{str::from_utf8, collections::BTreeMap};
+use std::str::from_utf8;
 
 use ast::{
-    Arguments, BinOp, Container, Expr, ExprKind, ExprRef, Ident, Operator,
-    Stmt, StmtKind, StmtSlice, MAX_FN_ARGS, MAX_STMTS_PER_BLOCK, SymbolRef,
+    Arguments, BinOp, Container, Expr, ExprKind, ExprRef, Operator, Stmt,
+    StmtKind, StmtSlice, MAX_FN_ARGS, MAX_STMTS_PER_BLOCK,
 };
+use interner::SymbolInterner;
 use lexer::{
     common::{Base, Token},
     Lexer,
@@ -27,8 +30,7 @@ pub struct Parser<'a> {
     lexer: Lexer<'a>,
     exprs: Container<Expr>,
     stmts: Container<Stmt>,
-    // FIXME: replace with efficient lookup table
-    idents: BTreeMap<SymbolRef, Ident<'a>>, 
+    symbols: SymbolInterner<'a>,
 }
 
 impl<'a> Parser<'a> {
@@ -37,7 +39,7 @@ impl<'a> Parser<'a> {
             lexer: Lexer::new(s),
             exprs: Default::default(),
             stmts: Default::default(),
-            idents: Default::default(),
+            symbols: Default::default(),
         };
         // lexer should point at first non-whitespace token.
         p.next_non_wspace();
@@ -66,8 +68,9 @@ impl<'a> Parser<'a> {
             Token::Ident => {
                 let text =
                     from_utf8(self.lexer.slice()).expect("convert to utf-8");
+                let sym_ref = self.symbols.intern(text);
                 self.push_expr(Expr {
-                    kind: ExprKind::Ident(SymbolRef(0)),
+                    kind: ExprKind::Ident(sym_ref),
                 })
             }
             t => panic!("expected expression, found `{t:?}`"),
@@ -339,7 +342,7 @@ impl<'a> Parser<'a> {
                     stack.push((self.exprs.get(r), depth + 3, true));
                     stack.push((self.exprs.get(l), depth + 3, false));
                 }
-                ExprKind::Ident(ref n) => println!("({:?})", n.0),
+                ExprKind::Ident(n) => println!("({})", self.symbols.lookup(n)),
                 ExprKind::Unit => println!("()"),
                 ExprKind::Eval(caller, args) => {
                     println!("(eval: {:?})", self.exprs.get(caller).kind);
@@ -357,7 +360,17 @@ impl<'a> Parser<'a> {
                                 depth + 3,
                                 false,
                             )),
-                            StmtKind::Let(ident_ref, expr_ref) => {}
+                            StmtKind::Let(ident_ref, expr_ref) => {
+                                println!(
+                                    "(let {:?})",
+                                    self.symbols.lookup(ident_ref)
+                                );
+                                stack.push((
+                                    self.exprs.get(expr_ref),
+                                    depth + 3,
+                                    false,
+                                ));
+                            }
                         },
                     );
                 }

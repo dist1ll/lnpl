@@ -8,6 +8,8 @@
 
 use std::ops::Range;
 
+use crate::interner::SymbolRef;
+
 pub const MAX_FN_ARGS: usize = 5;
 pub const MAX_STMTS_PER_BLOCK: usize = 30;
 
@@ -50,10 +52,6 @@ pub enum ExprKind {
 
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
 pub struct Ident<'a>(pub &'a str);
-
-/// An unique reference for interned strings. Used for bi-directional lookup.
-#[derive(Default, Debug, Clone, Copy, PartialEq)]
-pub struct SymbolRef(pub u32);
 
 pub struct Container<T: Clone>(Vec<T>);
 impl<T: Clone> Container<T> {
