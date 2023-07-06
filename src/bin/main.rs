@@ -13,5 +13,5 @@ const SOURCE: &str = include_str!("../example.ln");
 fn main() {
     let mut p = Parser::new(SOURCE);
     p.parse();
-    p.pprint_ast();
+    p.ast.pretty_print();
 }

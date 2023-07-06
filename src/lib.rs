@@ -11,13 +11,14 @@
 pub mod ast;
 pub mod interner;
 pub mod lexer;
+pub mod pretty_printer;
 pub mod stackvec;
 
 use std::str::from_utf8;
 
 use ast::{
-    Arguments, Ast, BinOp, Expr, ExprKind, ExprRef, Operator, Stmt,
-    StmtKind, StmtSlice, MAX_FN_ARGS, MAX_STMTS_PER_BLOCK,
+    Arguments, Ast, BinOp, Expr, ExprKind, ExprRef, Operator, Stmt, StmtKind,
+    StmtSlice, MAX_FN_ARGS, MAX_STMTS_PER_BLOCK,
 };
 use lexer::{
     common::{Base, Token},
@@ -27,7 +28,7 @@ use stackvec::StackVec;
 
 pub struct Parser<'a> {
     lexer: Lexer<'a>,
-    ast: Ast<'a>,
+    pub ast: Ast<'a>,
 }
 
 impl<'a> Parser<'a> {
@@ -317,61 +318,6 @@ impl<'a> Parser<'a> {
         self.ast.stmts.extend_from_slice(stmts);
         StmtSlice::new(self.ast.stmts.len() - len, len)
     }
-    /// Pretty-print the AST
-    pub fn pprint_ast(&mut self) {
-        let current = self.ast.exprs.last().expect("AST is empty");
-        let mut stack = vec![(current, 0, false)];
-        while let Some((elem, depth, last_sub)) = stack.pop() {
-            let line_char = if last_sub { "└" } else { "├" };
-            print!("{}{}─", "┆  ".repeat(depth / 3), line_char);
-            match elem.kind {
-                ExprKind::Number(n) => println!("({n})"),
-                ExprKind::Binary(ref op, l, r) => {
-                    let op_str = match op {
-                        BinOp::Add => " +",
-                        BinOp::Sub => " -",
-                        BinOp::Mul => " *",
-                        BinOp::Div => " ÷",
-                    };
-                    println!("{op_str}",);
-                    stack.push((self.ast.exprs.get(r), depth + 3, true));
-                    stack.push((self.ast.exprs.get(l), depth + 3, false));
-                }
-                ExprKind::Ident(n) => println!("({})", self.ast.symbols.lookup(n)),
-                ExprKind::Unit => println!("()"),
-                ExprKind::Eval(caller, args) => {
-                    println!("(eval: {:?})", self.ast.exprs.get(caller).kind);
-                    self.ast.exprs.get_slice(args).iter().rev().for_each(|expr| {
-                        stack.push((expr, depth + 3, true));
-                    });
-                }
-                ExprKind::Block(expr, stmt_ref) => {
-                    println!("(blockexpr)");
-                    stack.push((self.ast.exprs.get(expr), depth + 3, true));
-                    self.ast.stmts.get_slice(stmt_ref).iter().rev().for_each(
-                        |s| match s.kind {
-                            StmtKind::Expr(expr_ref) => stack.push((
-                                self.ast.exprs.get(expr_ref),
-                                depth + 3,
-                                false,
-                            )),
-                            StmtKind::Let(ident_ref, expr_ref) => {
-                                println!(
-                                    "(let {:?})",
-                                    self.ast.symbols.lookup(ident_ref)
-                                );
-                                stack.push((
-                                    self.ast.exprs.get(expr_ref),
-                                    depth + 3,
-                                    false,
-                                ));
-                            }
-                        },
-                    );
-                }
-            };
-        }
-    }
 }
 
 #[inline]
@@ -455,7 +401,6 @@ mod test {
     pub fn expr_block() {
         let mut p = Parser::new("{ 2 * 3 }");
         p.parse_expr_block();
-        p.pprint_ast();
         assert_eq!(
             p.ast.exprs.get(ExprRef::new(2)).kind,
             ExprKind::Binary(BinOp::Mul, ExprRef::new(0), ExprRef::new(1))

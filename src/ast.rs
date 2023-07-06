@@ -8,7 +8,7 @@
 
 use std::ops::Range;
 
-use crate::interner::{SymbolRef, SymbolInterner};
+use crate::interner::{SymbolInterner, SymbolRef};
 
 pub const MAX_FN_ARGS: usize = 5;
 pub const MAX_STMTS_PER_BLOCK: usize = 30;
