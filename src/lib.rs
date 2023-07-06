@@ -16,10 +16,9 @@ pub mod stackvec;
 use std::str::from_utf8;
 
 use ast::{
-    Arguments, BinOp, Container, Expr, ExprKind, ExprRef, Operator, Stmt,
+    Arguments, Ast, BinOp, Expr, ExprKind, ExprRef, Operator, Stmt,
     StmtKind, StmtSlice, MAX_FN_ARGS, MAX_STMTS_PER_BLOCK,
 };
-use interner::SymbolInterner;
 use lexer::{
     common::{Base, Token},
     Lexer,
@@ -28,18 +27,14 @@ use stackvec::StackVec;
 
 pub struct Parser<'a> {
     lexer: Lexer<'a>,
-    exprs: Container<Expr>,
-    stmts: Container<Stmt>,
-    symbols: SymbolInterner<'a>,
+    ast: Ast<'a>,
 }
 
 impl<'a> Parser<'a> {
     pub fn new(s: &'a str) -> Self {
         let mut p = Self {
             lexer: Lexer::new(s),
-            exprs: Default::default(),
-            stmts: Default::default(),
-            symbols: Default::default(),
+            ast: Default::default(),
         };
         // lexer should point at first non-whitespace token.
         p.next_non_wspace();
@@ -68,7 +63,7 @@ impl<'a> Parser<'a> {
             Token::Ident => {
                 let text =
                     from_utf8(self.lexer.slice()).expect("convert to utf-8");
-                let sym_ref = self.symbols.intern(text);
+                let sym_ref = self.ast.symbols.intern(text);
                 self.push_expr(Expr {
                     kind: ExprKind::Ident(sym_ref),
                 })
@@ -242,7 +237,7 @@ impl<'a> Parser<'a> {
             // parse & pop argument, so they can be added later
             self.parse_expr(0).expect("eval operator was not finished");
             // EX: we already asserted existence of at least 1 expression
-            args[i] = self.exprs.pop().unwrap();
+            args[i] = self.ast.exprs.pop().unwrap();
 
             if self.lexer.current().expect("matching closing parenthesis")
                 == Token::Comma
@@ -303,15 +298,15 @@ impl<'a> Parser<'a> {
     /// Pushes expression to the expr buffer and returns its id.
     #[inline]
     fn push_expr(&mut self, expr: Expr) -> ExprRef {
-        self.exprs.push(expr);
-        ExprRef::new(self.exprs.len() - 1)
+        self.ast.exprs.push(expr);
+        ExprRef::new(self.ast.exprs.len() - 1)
     }
     /// Pushes argument to the args buffer and returns the argument id
     #[inline]
     fn push_expr_slice(&mut self, expr_ids: &[Expr]) -> Arguments {
-        let len = self.exprs.len();
+        let len = self.ast.exprs.len();
         assert!((len + expr_ids.len()) <= ExprRef::MAX);
-        self.exprs.extend_from_slice(expr_ids);
+        self.ast.exprs.extend_from_slice(expr_ids);
         Arguments::new(len, expr_ids.len())
     }
     /// Pushes statements to the stmts buffer and returns the statement id
@@ -319,12 +314,12 @@ impl<'a> Parser<'a> {
     fn push_stmts(&mut self, stmts: &[Stmt]) -> StmtSlice {
         let len = stmts.len();
         assert!(len > 0, "non-zero number of statements expected");
-        self.stmts.extend_from_slice(stmts);
-        StmtSlice::new(self.stmts.len() - len, len)
+        self.ast.stmts.extend_from_slice(stmts);
+        StmtSlice::new(self.ast.stmts.len() - len, len)
     }
     /// Pretty-print the AST
     pub fn pprint_ast(&mut self) {
-        let current = self.exprs.last().expect("AST is empty");
+        let current = self.ast.exprs.last().expect("AST is empty");
         let mut stack = vec![(current, 0, false)];
         while let Some((elem, depth, last_sub)) = stack.pop() {
             let line_char = if last_sub { "└" } else { "├" };
@@ -339,34 +334,34 @@ impl<'a> Parser<'a> {
                         BinOp::Div => " ÷",
                     };
                     println!("{op_str}",);
-                    stack.push((self.exprs.get(r), depth + 3, true));
-                    stack.push((self.exprs.get(l), depth + 3, false));
+                    stack.push((self.ast.exprs.get(r), depth + 3, true));
+                    stack.push((self.ast.exprs.get(l), depth + 3, false));
                 }
-                ExprKind::Ident(n) => println!("({})", self.symbols.lookup(n)),
+                ExprKind::Ident(n) => println!("({})", self.ast.symbols.lookup(n)),
                 ExprKind::Unit => println!("()"),
                 ExprKind::Eval(caller, args) => {
-                    println!("(eval: {:?})", self.exprs.get(caller).kind);
-                    self.exprs.get_slice(args).iter().rev().for_each(|expr| {
+                    println!("(eval: {:?})", self.ast.exprs.get(caller).kind);
+                    self.ast.exprs.get_slice(args).iter().rev().for_each(|expr| {
                         stack.push((expr, depth + 3, true));
                     });
                 }
                 ExprKind::Block(expr, stmt_ref) => {
                     println!("(blockexpr)");
-                    stack.push((self.exprs.get(expr), depth + 3, true));
-                    self.stmts.get_slice(stmt_ref).iter().rev().for_each(
+                    stack.push((self.ast.exprs.get(expr), depth + 3, true));
+                    self.ast.stmts.get_slice(stmt_ref).iter().rev().for_each(
                         |s| match s.kind {
                             StmtKind::Expr(expr_ref) => stack.push((
-                                self.exprs.get(expr_ref),
+                                self.ast.exprs.get(expr_ref),
                                 depth + 3,
                                 false,
                             )),
                             StmtKind::Let(ident_ref, expr_ref) => {
                                 println!(
                                     "(let {:?})",
-                                    self.symbols.lookup(ident_ref)
+                                    self.ast.symbols.lookup(ident_ref)
                                 );
                                 stack.push((
-                                    self.exprs.get(expr_ref),
+                                    self.ast.exprs.get(expr_ref),
                                     depth + 3,
                                     false,
                                 ));
@@ -425,11 +420,11 @@ mod test {
         let mut p = Parser::new("(1 + 2) * 3");
         p.parse();
         assert_eq!(
-            p.exprs.get(ExprRef::new(2)).kind,
+            p.ast.exprs.get(ExprRef::new(2)).kind,
             ExprKind::Binary(BinOp::Add, ExprRef::new(0), ExprRef::new(1))
         );
         assert_eq!(
-            p.exprs.get(ExprRef::new(4)).kind,
+            p.ast.exprs.get(ExprRef::new(4)).kind,
             ExprKind::Binary(BinOp::Mul, ExprRef::new(2), ExprRef::new(3))
         );
     }
@@ -439,7 +434,7 @@ mod test {
         let mut p = Parser::new("(((a)) + b)");
         p.parse();
         assert_eq!(
-            p.exprs.get(ExprRef::new(2)).kind,
+            p.ast.exprs.get(ExprRef::new(2)).kind,
             ExprKind::Binary(BinOp::Add, ExprRef::new(0), ExprRef::new(1))
         );
     }
@@ -448,7 +443,7 @@ mod test {
     pub fn expr_fneval() {
         let mut p = Parser::new("f(a, b, c, 4)");
         p.parse();
-        match p.exprs.last().unwrap().kind {
+        match p.ast.exprs.last().unwrap().kind {
             ExprKind::Eval(_, args) => {
                 assert_eq!(args.count(), 4, "expected 4 arguments");
             }
@@ -462,7 +457,7 @@ mod test {
         p.parse_expr_block();
         p.pprint_ast();
         assert_eq!(
-            p.exprs.get(ExprRef::new(2)).kind,
+            p.ast.exprs.get(ExprRef::new(2)).kind,
             ExprKind::Binary(BinOp::Mul, ExprRef::new(0), ExprRef::new(1))
         );
     }
@@ -472,10 +467,10 @@ mod test {
         // weird whitespace on purpose
         let mut p = Parser::new("2+ ( { f(2+1); 2; 2 +3; } )");
         p.parse();
-        match p.exprs.get(ExprRef::new(11)).kind {
+        match p.ast.exprs.get(ExprRef::new(11)).kind {
             ExprKind::Block(end, slice) => {
-                assert_eq!(p.exprs.get(end).kind, ExprKind::Unit);
-                assert_eq!(p.stmts.get_slice(slice).len(), 3);
+                assert_eq!(p.ast.exprs.get(end).kind, ExprKind::Unit);
+                assert_eq!(p.ast.stmts.get_slice(slice).len(), 3);
             }
             ref expr => panic!("unexpected expression type: {:?}", expr),
         }

@@ -8,13 +8,17 @@
 
 use std::ops::Range;
 
-use crate::interner::SymbolRef;
+use crate::interner::{SymbolRef, SymbolInterner};
 
 pub const MAX_FN_ARGS: usize = 5;
 pub const MAX_STMTS_PER_BLOCK: usize = 30;
 
-pub enum ItemKind {
-    Type,
+/// An abstract syntax tree
+#[derive(Default)]
+pub struct Ast<'a> {
+    pub exprs: Container<Expr>,
+    pub stmts: Container<Stmt>,
+    pub symbols: SymbolInterner<'a>,
 }
 
 #[derive(Debug, Clone)]
