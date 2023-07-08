@@ -10,7 +10,7 @@ use rustc_hash::FxHashMap;
 
 /// A unique reference for interned strings. Used for bi-directional lookup.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct SymbolRef(u32);
+pub struct SymbolRef(pub u32);
 
 /// A data structure for interning strings.
 #[derive(Default)]

@@ -15,8 +15,7 @@ impl<'a> Ast<'a> {
         let current = self.exprs.last().expect("AST is empty");
         let mut stack = vec![(current, 0, false)];
         while let Some((elem, depth, last_sub)) = stack.pop() {
-            let line_char = if last_sub { "└" } else { "├" };
-            print!("{}{}─", "┆  ".repeat(depth / 3), line_char);
+            print_depth(depth, last_sub);
 
             self.print_exprkind(&elem.kind);
             println!(""); /* newline after exprkind header */
@@ -44,14 +43,15 @@ impl<'a> Ast<'a> {
                                 false,
                             )),
                             StmtKind::Let(ident_ref, expr_ref) => {
+                                print_depth(depth + 3, false);
                                 println!(
-                                    "(let {:?})",
+                                    "(let {} =)",
                                     self.symbols.lookup(ident_ref)
                                 );
                                 stack.push((
                                     self.exprs.get(expr_ref),
-                                    depth + 3,
-                                    false,
+                                    depth + 6,
+                                    true,
                                 ));
                             }
                         },
@@ -87,4 +87,10 @@ impl<'a> Ast<'a> {
             }
         };
     }
+}
+
+/// Print vertical lines for a given depth of the pretty-printed AST
+fn print_depth(depth: usize, last: bool) {
+    let line_char = if last { "└" } else { "├" };
+    print!("{}{}─", "┆  ".repeat(depth / 3), line_char);
 }

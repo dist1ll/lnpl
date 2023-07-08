@@ -8,7 +8,7 @@
 pub mod common;
 
 use common::{keyword_hash, Base, Token, KEYWORD_MAP, MAX_KW_LEN};
-use std::{iter::Peekable, str::Chars};
+use std::{iter::Peekable, str::{Chars, from_utf8_unchecked}};
 
 /// Generic lexer implementation. This is used as a fallback implementation
 /// for platforms without a specialized SIMD implementation.
@@ -31,12 +31,16 @@ impl<'a> Lexer<'a> {
         }
     }
     #[inline]
-    pub fn current(&mut self) -> Option<Token> {
+    pub fn current(&self) -> Option<Token> {
         self.current.clone()
     }
     #[inline]
-    pub fn slice(&mut self) -> &'a [u8] {
-        &self.text[(self.pos - self.current_len as usize)..(self.pos)]
+    pub fn slice(&mut self) -> &'a str {
+        let s = &self.text[(self.pos - self.current_len as usize)..(self.pos)];
+        // SAFETY: The `text` was derived from a checked utf-8 string.
+        // We increment the position in [`Self::advance`] by the number of 
+        // bytes the character occupies in utf-8.
+        unsafe { from_utf8_unchecked(s) } 
     }
     #[inline]
     pub fn next(&mut self) -> Option<Token> {
@@ -75,7 +79,7 @@ impl<'a> Lexer<'a> {
         match self.chars.next() {
             None => return None,
             Some(next) => {
-                self.pos += 1;
+                self.pos += next.len_utf8();
                 Some(next)
             }
         }
@@ -177,7 +181,7 @@ mod test {
     fn number() {
         let mut l = Lexer::new("0 ");
         assert_matches!(l.next().unwrap(), Token::Number(_));
-        assert_eq!(l.slice(), b"0");
+        assert_eq!(l.slice(), "0");
 
         let mut l = Lexer::new("12384359");
         assert_matches!(l.next().unwrap(), Token::Number(_));

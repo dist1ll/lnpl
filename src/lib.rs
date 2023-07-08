@@ -14,8 +14,6 @@ pub mod lexer;
 pub mod pretty_printer;
 pub mod stackvec;
 
-use std::str::from_utf8;
-
 use ast::{
     Arguments, Ast, BinOp, Expr, ExprKind, ExprRef, Operator, Stmt, StmtKind,
     StmtSlice, MAX_FN_ARGS, MAX_STMTS_PER_BLOCK,
@@ -37,7 +35,7 @@ impl<'a> Parser<'a> {
             lexer: Lexer::new(s),
             ast: Default::default(),
         };
-        // lexer should point at first non-whitespace token.
+        // Lexer should point at first non-whitespace token.
         p.next_non_wspace();
         p
     }
@@ -62,9 +60,7 @@ impl<'a> Parser<'a> {
                 })
             }
             Token::Ident => {
-                let text =
-                    from_utf8(self.lexer.slice()).expect("convert to utf-8");
-                let sym_ref = self.ast.symbols.intern(text);
+                let sym_ref = self.ast.symbols.intern(self.lexer.slice());
                 self.push_expr(Expr {
                     kind: ExprKind::Ident(sym_ref),
                 })
@@ -169,23 +165,40 @@ impl<'a> Parser<'a> {
         let mut expr = ExprRef::new(0);
         // Iterates over statements and expressions inside the block expr.
         // If we find a statement, we consume it, add it to the list of
-        // statements, and continue looping until we find an expression.
+        // statements, and continue looping until we find an expression or
+        // closing brace.
         while next != Token::BraceClose {
             block_members += 1;
-            expr = self.parse_expr(0).expect("missing '}'");
-            next = self.lexer.current().expect("missing '}'");
-
-            match next {
-                Token::Semicolon => (),
-                Token::BraceClose => break,
-                k => panic!("block expr need to end with '}}', found {:?}", k),
+            // Either parse pure statement
+            if self.begin_stmt_pure() {
+                match self.parse_stmt_pure() {
+                    Some(stmt) => stmts.push(stmt).unwrap(),
+                    None => panic!("expected completed statement"),
+                };
             }
-            // add statement to current expr block
-            stmts
-                .push(Stmt {
-                    kind: StmtKind::Expr(expr),
-                })
-                .unwrap();
+            // or parse expression (or expression statement)
+            else {
+                expr = self.parse_expr(0).expect("missing '}'");
+                next = self.lexer.current().expect("missing '}'");
+
+                match next {
+                    // Expressions can end with `;`, which is a StmtKind::Expr
+                    Token::Semicolon => (),
+                    // Expressions can also stand alone at the end of a scope.
+                    // This gives the expression return semantics.
+                    Token::BraceClose => break,
+                    k => panic!(
+                        "block expr need to end with '}}', found {:?}",
+                        k
+                    ),
+                }
+                // add statement to current expr block
+                stmts
+                    .push(Stmt {
+                        kind: StmtKind::Expr(expr),
+                    })
+                    .unwrap();
+            }
             next = self.next_non_wspace().expect("missing '}'");
         }
         // special case: empty expression block
@@ -296,6 +309,46 @@ impl<'a> Parser<'a> {
         }
         None
     }
+    /// Parses a non-expression statement.
+    #[inline]
+    fn parse_stmt_pure(&mut self) -> Option<Stmt> {
+        debug_assert!(self.begin_stmt_pure());
+        match self.lexer.current().unwrap() {
+            Token::Let => self.parse_stmt_let(),
+            t => panic!("unsupported statement: {t:?}"),
+        }
+    }
+    /// Parses a non-expression statement
+    #[inline]
+    fn parse_stmt_let(&mut self) -> Option<Stmt> {
+        eprintln!("parsing statement!");
+        let ident =
+            match self.next_non_wspace().expect("identifier after `let`") {
+                Token::Ident => self.lexer.slice(),
+                t => panic!("expected identifier after `let`. found {t:?}"),
+            };
+        let lhs = self.ast.symbols.intern(ident);
+
+        // eat whitespace
+        self.next_non_wspace();
+
+        // parse expression
+        let rhs = self.parse_expr(0).expect("expression on rhs of let stmt");
+        assert_eq!(self.lexer.current().expect("semicolon"), Token::Semicolon);
+
+        Some(Stmt {
+            kind: StmtKind::Let(lhs, rhs),
+        })
+    }
+
+    /// Returns true if the current lexer token starts a pure statement.
+    #[inline]
+    fn begin_stmt_pure(&self) -> bool {
+        match self.lexer.current().unwrap() {
+            Token::Let => true,
+            _ => false,
+        }
+    }
     /// Pushes expression to the expr buffer and returns its id.
     #[inline]
     fn push_expr(&mut self, expr: Expr) -> ExprRef {
@@ -321,8 +374,8 @@ impl<'a> Parser<'a> {
 }
 
 #[inline]
-fn parse_number(base: Base, s: &[u8]) -> Result<usize, &'static str> {
-    let mut iter = s.iter().rev();
+fn parse_number(base: Base, s: &str) -> Result<usize, &'static str> {
+    let mut iter = s.as_bytes().iter().rev();
     let mut result = (iter.next().unwrap() - b'0') as usize;
     let mut mult = 1;
     for b in iter {
@@ -340,6 +393,8 @@ fn parse_number(base: Base, s: &[u8]) -> Result<usize, &'static str> {
 
 #[cfg(test)]
 mod test {
+    use crate::{interner::SymbolRef, ast::StmtRef};
+
     use super::*;
     macro_rules! extract_int {
         ($t:ident) => {
@@ -409,7 +464,6 @@ mod test {
 
     #[test]
     pub fn stmt_simple_expr() {
-        // weird whitespace on purpose
         let mut p = Parser::new("2+ ( { f(2+1); 2; 2 +3; } )");
         p.parse();
         match p.ast.exprs.get(ExprRef::new(11)).kind {
@@ -419,5 +473,15 @@ mod test {
             }
             ref expr => panic!("unexpected expression type: {:?}", expr),
         }
+    }
+
+    #[test]
+    fn let_simple() {
+        let mut p = Parser::new("{ let x 1; }");
+        p.parse();
+        assert_eq!(
+            p.ast.stmts.get(StmtRef(0)).kind,
+            StmtKind::Let(SymbolRef(0), ExprRef::new(0))
+        );
     }
 }

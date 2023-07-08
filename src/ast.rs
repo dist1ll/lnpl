@@ -26,7 +26,7 @@ pub struct Stmt {
     pub kind: StmtKind,
 }
 // TODO: StmtKind consumes too much memory. Consider using unstable features.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum StmtKind {
     /// An expression + semicolon, like `foo();`, `a + b;`, `{ let x = 5; };`
     Expr(ExprRef),
@@ -141,23 +141,32 @@ impl ContainerRange<Expr> for Arguments {
     }
 }
 
+#[derive(Default, Debug, Clone, Copy, PartialEq)]
+pub struct StmtRef(pub u32);
+
+impl ContainerIndex<Stmt> for StmtRef {
+    fn index(&self) -> usize {
+        self.0 as usize
+    }
+}
+
 /// StmtSlice is a fat pointer into [`Container<Stmt>`]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct StmtSlice(u32);
-
-impl ContainerRange<Stmt> for StmtSlice {
-    fn range(&self) -> Range<usize> {
-        let index = (self.0 >> 8) as usize;
-        let count = (self.0 & 0xff) as usize;
-        index..(index + count)
-    }
-}
 
 impl StmtSlice {
     pub fn new(index: usize, statement_count: usize) -> Self {
         assert!(index < 1 << 24);
         assert!(statement_count < 1 << 8);
         Self(((index << 8) + statement_count) as u32)
+    }
+}
+
+impl ContainerRange<Stmt> for StmtSlice {
+    fn range(&self) -> Range<usize> {
+        let index = (self.0 >> 8) as usize;
+        let count = (self.0 & 0xff) as usize;
+        index..(index + count)
     }
 }
 
