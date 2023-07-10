@@ -112,8 +112,6 @@ pub const KEYWORD_MAP: [[u8; 8]; 16] = [
 
 pub const KW_MAGIC_NUMBER: usize = 6;
 
-// TODO: Improve perfect hash function with something that doesn't multiple
-// nested and dependent instructions
 #[inline]
 pub fn keyword_hash(b: &[u8; 8]) -> (usize, Option<Token>) {
     let hash =

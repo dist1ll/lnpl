@@ -42,11 +42,12 @@ impl<'a> Ast<'a> {
                                 depth + 3,
                                 false,
                             )),
-                            StmtKind::Let(ident_ref, expr_ref) => {
+                            StmtKind::Let(ident_ref, ref ty, expr_ref) => {
                                 print_depth(depth + 3, false);
                                 println!(
-                                    "(let {} =)",
-                                    self.symbols.lookup(ident_ref)
+                                    "(let {}:{:?} =)",
+                                    self.symbols.lookup(ident_ref),
+                                    ty,
                                 );
                                 stack.push((
                                     self.exprs.get(expr_ref),

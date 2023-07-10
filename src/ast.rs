@@ -21,17 +21,22 @@ pub struct Ast<'a> {
     pub symbols: SymbolInterner<'a>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum Type {
+    /// A simple identifier representing a type.
+    Simple(SymbolRef),
+}
+
 #[derive(Debug, Clone)]
 pub struct Stmt {
     pub kind: StmtKind,
 }
-// TODO: StmtKind consumes too much memory. Consider using unstable features.
 #[derive(Debug, Clone, PartialEq)]
 pub enum StmtKind {
     /// An expression + semicolon, like `foo();`, `a + b;`, `{ let x = 5; };`
     Expr(ExprRef),
-    /// A let binding
-    Let(SymbolRef, ExprRef),
+    /// A let binding (identifier, optional type ascription, bound expression)
+    Let(SymbolRef, Option<Type>, ExprRef),
 }
 
 #[derive(Default, Debug, Clone)]

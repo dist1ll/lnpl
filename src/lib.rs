@@ -16,7 +16,7 @@ pub mod stackvec;
 
 use ast::{
     Arguments, Ast, BinOp, Expr, ExprKind, ExprRef, Operator, Stmt, StmtKind,
-    StmtSlice, MAX_FN_ARGS, MAX_STMTS_PER_BLOCK,
+    StmtSlice, Type, MAX_FN_ARGS, MAX_STMTS_PER_BLOCK,
 };
 use lexer::{
     common::{Base, Token},
@@ -329,15 +329,26 @@ impl<'a> Parser<'a> {
             };
         let lhs = self.ast.symbols.intern(ident);
 
-        // eat whitespace
-        self.next_non_wspace();
+        // eat whitespace and check for `:`
+        let type_ascription = match self.next_non_wspace() {
+            Some(Token::Colon) => {
+                // eat whitespace after colon
+                self.next_non_wspace();
+                Some(self.parse_type())
+            }
+            _ => None,
+        };
 
         // parse expression
         let rhs = self.parse_expr(0).expect("expression on rhs of let stmt");
-        assert_eq!(self.lexer.current().expect("semicolon"), Token::Semicolon);
+        assert_eq!(
+            self.lexer.current().expect("semicolon"),
+            Token::Semicolon,
+            "missing semicolon at the end of let statement"
+        );
 
         Some(Stmt {
-            kind: StmtKind::Let(lhs, rhs),
+            kind: StmtKind::Let(lhs, type_ascription, rhs),
         })
     }
 
@@ -348,6 +359,32 @@ impl<'a> Parser<'a> {
             Token::Let => true,
             _ => false,
         }
+    }
+    /// Parses a type from the current position. Expects no leading whitespace.
+    #[inline]
+    fn parse_type(&mut self) -> Type {
+        // parse simple type
+        let ret = match self.lexer.current().unwrap() {
+            Token::Ident => {
+                let sym = self.ast.symbols.intern(self.lexer.slice());
+                Type::Simple(sym)
+            }
+            t => panic!("unsupported token while parsing type: found {:?}", t),
+        };
+        // eat the type and whitespace
+        self.next_non_wspace();
+
+        // // check immediate next character after ident
+        // match self.lexer.next() {
+        //     // This is a generic type
+        //     Some(Token::ParensOpen) => (),
+        //     Some(Token::Whitespace) => {
+        //         // eat whitespace
+        //         self.next_non_wspace();
+        //     }
+        //     _ => (),
+        // }
+        ret
     }
     /// Pushes expression to the expr buffer and returns its id.
     #[inline]
@@ -393,7 +430,8 @@ fn parse_number(base: Base, s: &str) -> Result<usize, &'static str> {
 
 #[cfg(test)]
 mod test {
-    use crate::{interner::SymbolRef, ast::StmtRef};
+    use crate::{ast::StmtRef, interner::SymbolRef};
+    use std::assert_matches::assert_matches;
 
     use super::*;
     macro_rules! extract_int {
@@ -481,7 +519,26 @@ mod test {
         p.parse();
         assert_eq!(
             p.ast.stmts.get(StmtRef(0)).kind,
-            StmtKind::Let(SymbolRef(0), ExprRef::new(0))
+            StmtKind::Let(SymbolRef(0), None, ExprRef::new(0))
         );
+    }
+    #[test]
+    fn let_composite() {
+        let mut p = Parser::new("{ let ident 2 + foo(bar); }");
+        p.parse();
+        assert_eq!(
+            p.ast.stmts.get(StmtRef(0)).kind,
+            StmtKind::Let(SymbolRef(0), None, ExprRef::new(4))
+        );
+    }
+    #[test]
+    fn let_ascription_simple() {
+        let mut p = Parser::new("{ let x: u32 42; }");
+        p.parse();
+        let ty = match p.ast.stmts.get(StmtRef(0)).kind.to_owned() {
+            StmtKind::Let(_, ty, _) => ty.unwrap(),
+            _ => panic!("expected let statement"),
+        };
+        assert_matches!(ty, Type::Simple(_));
     }
 }
