@@ -18,13 +18,16 @@ pub const MAX_STMTS_PER_BLOCK: usize = 30;
 pub struct Ast<'a> {
     pub exprs: Container<Expr>,
     pub stmts: Container<Stmt>,
+    pub types: Container<Type>,
     pub symbols: SymbolInterner<'a>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Type {
-    /// A simple identifier representing a type.
+    /// A simple identifier representing a type
     Simple(SymbolRef),
+    /// A pointer type
+    Ptr(TypeRef),
 }
 
 #[derive(Debug, Clone)]
@@ -108,8 +111,20 @@ pub trait ContainerRange<T: Clone> {
 }
 
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
-pub struct ExprRef(u32);
+pub struct TypeRef(u32);
+impl TypeRef {
+    pub fn new(value: usize) -> Self {
+        Self(value.try_into().expect("type use limit hit"))
+    }
+}
+impl ContainerIndex<Type> for TypeRef {
+    fn index(&self) -> usize {
+        self.0 as usize
+    }
+}
 
+#[derive(Default, Debug, Clone, Copy, PartialEq)]
+pub struct ExprRef(u32);
 impl ExprRef {
     pub const MAX: usize = (1 << 22);
     pub fn new(value: usize) -> Self {
@@ -148,7 +163,6 @@ impl ContainerRange<Expr> for Arguments {
 
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
 pub struct StmtRef(pub u32);
-
 impl ContainerIndex<Stmt> for StmtRef {
     fn index(&self) -> usize {
         self.0 as usize
@@ -158,7 +172,6 @@ impl ContainerIndex<Stmt> for StmtRef {
 /// StmtSlice is a fat pointer into [`Container<Stmt>`]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct StmtSlice(u32);
-
 impl StmtSlice {
     pub fn new(index: usize, statement_count: usize) -> Self {
         assert!(index < 1 << 24);

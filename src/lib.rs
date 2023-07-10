@@ -16,7 +16,7 @@ pub mod stackvec;
 
 use ast::{
     Arguments, Ast, BinOp, Expr, ExprKind, ExprRef, Operator, Stmt, StmtKind,
-    StmtSlice, Type, MAX_FN_ARGS, MAX_STMTS_PER_BLOCK,
+    StmtSlice, Type, TypeRef, MAX_FN_ARGS, MAX_STMTS_PER_BLOCK,
 };
 use lexer::{
     common::{Base, Token},
@@ -360,31 +360,44 @@ impl<'a> Parser<'a> {
             _ => false,
         }
     }
-    /// Parses a type from the current position. Expects no leading whitespace.
+    /// Parses a type use from the current position (no leading whitespace).
+    /// A type use is not a type introduction. Examples of type uses:
+    ///
+    /// ```text
+    /// ln x fn(a: u32) { }
+    ///            ^^^
+    /// let x: *u32 foo[x].&;
+    ///        ^^^^
+    /// let arr Array(u8).new_cap(0xffff);
+    ///         ^^^^^^^^^
+    /// ```
     #[inline]
     fn parse_type(&mut self) -> Type {
-        // parse simple type
-        let ret = match self.lexer.current().unwrap() {
+        match self.lexer.current().unwrap() {
+            // types that start with an identifier e.g. `Foo`
             Token::Ident => {
                 let sym = self.ast.symbols.intern(self.lexer.slice());
-                Type::Simple(sym)
+                let ret = Type::Simple(sym);
+                // eat the type and whitespace
+                self.next_non_wspace();
+                // TODO(#3): handle generic types that start with ident
+                ret
+            }
+            // pointer type e.g. `*u8`
+            Token::Star => {
+                // eat the `*`
+                self.lexer.next();
+                let t = self.parse_type();
+                Type::Ptr(self.push_type(t))
             }
             t => panic!("unsupported token while parsing type: found {:?}", t),
-        };
-        // eat the type and whitespace
-        self.next_non_wspace();
-
-        // // check immediate next character after ident
-        // match self.lexer.next() {
-        //     // This is a generic type
-        //     Some(Token::ParensOpen) => (),
-        //     Some(Token::Whitespace) => {
-        //         // eat whitespace
-        //         self.next_non_wspace();
-        //     }
-        //     _ => (),
-        // }
-        ret
+        }
+    }
+    /// Pushes expression to the expr buffer and returns its id.
+    #[inline]
+    fn push_type(&mut self, ty: Type) -> TypeRef {
+        self.ast.types.push(ty);
+        TypeRef::new(self.ast.types.len() - 1)
     }
     /// Pushes expression to the expr buffer and returns its id.
     #[inline]
@@ -540,5 +553,16 @@ mod test {
             _ => panic!("expected let statement"),
         };
         assert_matches!(ty, Type::Simple(_));
+    }
+    #[test]
+    fn let_ascription_ptr() {
+        let mut p = Parser::new("{ let x: *u32 123; }");
+        p.parse();
+        let ty = match p.ast.stmts.get(StmtRef(0)).kind.to_owned() {
+            StmtKind::Let(_, ty, _) => ty.unwrap(),
+            _ => panic!("expected let statement"),
+        };
+        assert_matches!(ty, Type::Ptr(_));
+        p.ast.pretty_print();
     }
 }
