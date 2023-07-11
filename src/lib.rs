@@ -91,7 +91,10 @@ impl<'a> Parser<'a> {
                     });
                 }
                 Operator::StartEval => {
-                    lhs_id = self.parse_eval(lhs_id).expect("parse eval");
+                    let args = self.parse_arguments();
+                    lhs_id = self.push_expr(Expr {
+                        kind: ExprKind::Eval(lhs_id, args),
+                    });
                     // skip to next meaningful token after `)`
                     self.next_non_wspace();
                 }
@@ -218,15 +221,15 @@ impl<'a> Parser<'a> {
             kind: ExprKind::Block(expr, stmt_ref),
         })
     }
-    /// Parses the inside of an evaluation operation, starting from the
-    /// opening parenthesis and ends at the closing parenthesis `)`.
+    /// Parses a parenthesized comma-separated argument list, starting from
+    /// the opening parenthesis and ending at the closing parenthesis `)`.
     /// ```
     ///   foo(a, b, c, d, e, f)
     ///      ^                ^
     ///   start here      end here
     /// ```
     #[inline]
-    fn parse_eval(&mut self, caller: ExprRef) -> Option<ExprRef> {
+    fn parse_arguments(&mut self) -> Arguments {
         debug_assert_eq!(
             self.lexer.current().unwrap(),
             Token::ParensOpen,
@@ -236,9 +239,7 @@ impl<'a> Parser<'a> {
 
         // no arguments
         if cursor == Token::ParensClose {
-            return Some(self.push_expr(Expr {
-                kind: ExprKind::Eval(caller, Default::default()),
-            }));
+            return Arguments::default();
         }
         // parse arguments
         let mut args: [Expr; MAX_FN_ARGS] = Default::default();
@@ -250,26 +251,19 @@ impl<'a> Parser<'a> {
             // EX: we already asserted existence of at least 1 expression
             args[i] = self.ast.exprs.pop().unwrap();
 
-            if self.lexer.current().expect("matching closing parenthesis")
-                == Token::Comma
-            {
-                // eat the ',' and any subsequent whitespace
-                self.next_non_wspace();
-                i += 1;
-                assert!(i < MAX_FN_ARGS, "Exceeded max fn args: {MAX_FN_ARGS}")
-            } else {
-                break;
-            }
+            match self.lexer.current().expect("matching closing parenthesis") {
+                Token::Comma => {
+                    // eat the ',' and any subsequent whitespace
+                    self.next_non_wspace();
+                    i += 1;
+                    assert!(i < MAX_FN_ARGS, "too many function arguments")
+                }
+                Token::ParensClose => break,
+                t => panic!("expected `)` of parens block, found: {t:?}"),
+            };
         }
-
-        let args = self.push_expr_slice(&args[0..(i + 1)]);
-
-        match &self.lexer.current().unwrap() {
-            Token::ParensClose => Some(self.push_expr(Expr {
-                kind: ExprKind::Eval(caller, args),
-            })),
-            t => panic!("wrong eval expression termination token: {t:?}"),
-        }
+        // needs to end with
+        self.push_expr_slice(&args[0..(i + 1)])
     }
     /// Returns the next token that is not whitespace
     #[inline]
