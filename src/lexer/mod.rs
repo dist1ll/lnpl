@@ -8,7 +8,10 @@
 pub mod common;
 
 use common::{keyword_hash, Base, Token, KEYWORD_MAP, MAX_KW_LEN};
-use std::{iter::Peekable, str::{Chars, from_utf8_unchecked}};
+use std::{
+    iter::Peekable,
+    str::{from_utf8_unchecked, Chars},
+};
 
 /// Generic lexer implementation. This is used as a fallback implementation
 /// for platforms without a specialized SIMD implementation.
@@ -30,17 +33,18 @@ impl<'a> Lexer<'a> {
             current_len: 0,
         }
     }
+    #[must_use]
     #[inline]
     pub fn current(&self) -> Option<Token> {
-        self.current.clone()
+        self.current
     }
     #[inline]
-    pub fn slice(&mut self) -> &'a str {
+    pub fn slice(&self) -> &'a str {
         let s = &self.text[(self.pos - self.current_len as usize)..(self.pos)];
         // SAFETY: The `text` was derived from a checked utf-8 string.
-        // We increment the position in [`Self::advance`] by the number of 
+        // We increment the position in [`Self::advance`] by the number of
         // bytes the character occupies in utf-8.
-        unsafe { from_utf8_unchecked(s) } 
+        unsafe { from_utf8_unchecked(s) }
     }
     #[inline]
     pub fn next(&mut self) -> Option<Token> {
@@ -72,12 +76,12 @@ impl<'a> Lexer<'a> {
         };
         self.current_len = self.pos as u32 - old_pos as u32;
         self.current = Some(kind);
-        self.current.clone()
+        self.current
     }
     #[inline]
     fn advance(&mut self) -> Option<char> {
         match self.chars.next() {
-            None => return None,
+            None => None,
             Some(next) => {
                 self.pos += next.len_utf8();
                 Some(next)
@@ -86,7 +90,7 @@ impl<'a> Lexer<'a> {
     }
     #[inline]
     fn peek_char(&mut self) -> Option<char> {
-        self.chars.peek().map(|c| *c)
+        self.chars.peek().copied()
     }
     #[inline]
     fn read_numeral(&mut self, first: char) -> Token {
@@ -94,8 +98,8 @@ impl<'a> Lexer<'a> {
             None => return Token::Number(Base::Decimal),
             Some(digit) => digit,
         };
-        match first {
-            '0' => match second {
+        if first == '0' {
+            match second {
                 '0'..='9' => {
                     self.advance_while(|c| c.is_ascii_digit());
                     Token::Number(Base::Decimal)
@@ -111,11 +115,10 @@ impl<'a> Lexer<'a> {
                     Token::Number(Base::Hex)
                 }
                 _ => Token::Number(Base::Decimal),
-            },
-            _ => {
-                self.advance_while(|c| c.is_ascii_digit());
-                Token::Number(Base::Decimal)
             }
+        } else {
+            self.advance_while(|c| c.is_ascii_digit());
+            Token::Number(Base::Decimal)
         }
     }
     /// Returns either Ident or Keyword

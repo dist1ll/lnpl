@@ -68,9 +68,9 @@ fn main() {
             });
             println!("];\nconst KW_MAGIC_NUMBER: usize = {};\n", i);
             println!("    let keyword = match hash {{");
-            v.into_iter().for_each(|(&idx, kw)| {
-                println!("        {} => Keyword::{},", idx, title_case(kw))
-            });
+            for (&idx, kw) in v {
+                println!("        {} => Keyword::{},", idx, title_case(kw));
+            }
             println!("        _ => return (hash, None),\n    }};\n");
             break;
         }

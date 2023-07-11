@@ -18,16 +18,14 @@ impl<'a> Ast<'a> {
             print_depth(depth, last_sub);
 
             self.print_exprkind(&elem.kind);
-            println!(""); /* newline after exprkind header */
+            println!(); /* newline after exprkind header */
 
             match elem.kind {
-                ExprKind::Number(_) => (),
+                ExprKind::Unit | ExprKind::Number(_) | ExprKind::Ident(_) => {}
                 ExprKind::Binary(_, l, r) => {
                     stack.push((self.exprs.get(r), depth + 3, true));
                     stack.push((self.exprs.get(l), depth + 3, false));
                 }
-                ExprKind::Ident(_) => (),
-                ExprKind::Unit => (),
                 ExprKind::Eval(_, args) => {
                     self.exprs.get_slice(args).iter().rev().for_each(|expr| {
                         stack.push((expr, depth + 3, true));
@@ -61,7 +59,7 @@ impl<'a> Ast<'a> {
             };
         }
     }
-    /// Prints the first line of an ExprKind
+    /// Prints the first line of an [`ExprKind`]
     fn print_exprkind(&self, e: &ExprKind) {
         match e {
             ExprKind::Number(n) => print!("({n})"),
@@ -75,7 +73,7 @@ impl<'a> Ast<'a> {
                 print!("{op_str}",);
             }
             ExprKind::Ident(n) => {
-                print!("({})", self.symbols.lookup(*n))
+                print!("({})", self.symbols.lookup(*n));
             }
             ExprKind::Unit => print!("()"),
             ExprKind::Eval(caller, _) => {

@@ -130,7 +130,7 @@ impl<'a> Parser<'a> {
             Token::Semicolon => {
                 panic!("parenthesized expressions cannot contain statements")
             }
-            k => panic!("expected closing parenthesis ')', found {:?}", k),
+            k => panic!("expected closing parenthesis ')', found {k:?}"),
         };
         ret
     }
@@ -187,10 +187,7 @@ impl<'a> Parser<'a> {
                     // Expressions can also stand alone at the end of a scope.
                     // This gives the expression return semantics.
                     Token::BraceClose => break,
-                    k => panic!(
-                        "block expr need to end with '}}', found {:?}",
-                        k
-                    ),
+                    k => panic!("blockexpr has to end with '}}', found {k:?}"),
                 }
                 // add statement to current expr block
                 stmts
@@ -259,9 +256,7 @@ impl<'a> Parser<'a> {
                 // eat the ',' and any subsequent whitespace
                 self.next_non_wspace();
                 i += 1;
-                if i >= MAX_FN_ARGS {
-                    panic!("too many fn arguments. Maximum: {MAX_FN_ARGS}");
-                }
+                assert!(i < MAX_FN_ARGS, "Exceeded max fn args: {MAX_FN_ARGS}")
             } else {
                 break;
             }
@@ -355,10 +350,7 @@ impl<'a> Parser<'a> {
     /// Returns true if the current lexer token starts a pure statement.
     #[inline]
     fn begin_stmt_pure(&self) -> bool {
-        match self.lexer.current().unwrap() {
-            Token::Let => true,
-            _ => false,
-        }
+        matches!(self.lexer.current().unwrap(), Token::Let)
     }
     /// Parses a type use from the current position (no leading whitespace).
     /// A type use is not a type introduction. Examples of type uses:
@@ -390,7 +382,7 @@ impl<'a> Parser<'a> {
                 let t = self.parse_type();
                 Type::Ptr(self.push_type(t))
             }
-            t => panic!("unsupported token while parsing type: found {:?}", t),
+            t => panic!("unsupported token while parsing type: found {t:?}"),
         }
     }
     /// Pushes expression to the expr buffer and returns its id.
