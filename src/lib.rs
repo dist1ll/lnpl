@@ -375,12 +375,25 @@ impl<'a> Parser<'a> {
                 // TODO(#3): handle generic types that start with ident
                 ret
             }
-            // pointer type e.g. `*u8`
+            // pointer type e.g. `*T`
             Token::Star => {
                 // eat the `*`
                 self.lexer.next();
                 let t = self.parse_type();
                 Type::Ptr(self.push_type(t))
+            }
+            // slice type e.g. `[]T`
+            Token::BracketOpen => {
+                // eat the `[`
+                match self.next_non_wspace().expect("expected `]`") {
+                    Token::BracketClose => {
+                        // eat the `]`
+                        self.lexer.next();
+                    }
+                    t => panic!("unsupported token in slice syntax: {t:?}"),
+                }
+                let t = self.parse_type();
+                Type::Slice(self.push_type(t))
             }
             t => panic!("unsupported token while parsing type: found {t:?}"),
         }
@@ -555,6 +568,17 @@ mod test {
             _ => panic!("expected let statement"),
         };
         assert_matches!(ty, Type::Ptr(_));
+        p.ast.pretty_print();
+    }
+    #[test]
+    fn let_ascription_slice_basic() {
+        let mut p = Parser::new("{ let x: []u32 generate(); }");
+        p.parse();
+        let ty = match p.ast.stmts.get(StmtRef(0)).kind.to_owned() {
+            StmtKind::Let(_, ty, _) => ty.unwrap(),
+            _ => panic!("expected let statement"),
+        };
+        assert_matches!(ty, Type::Slice(_));
         p.ast.pretty_print();
     }
 }

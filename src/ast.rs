@@ -22,12 +22,16 @@ pub struct Ast<'a> {
     pub symbols: SymbolInterner<'a>,
 }
 
+// TODO(#4): Full TypeRefs are not necessary in most cases. We could consider
+// reserving a bit and implementing a manual tagged union.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Type {
     /// A simple identifier representing a type
     Simple(SymbolRef),
-    /// A pointer type
+    /// A pointer type (e.g. `*T`)
     Ptr(TypeRef),
+    /// A basic, single-dimensional slice type (e.g. `[]T`)
+    Slice(TypeRef),
 }
 
 #[derive(Debug, Clone)]
