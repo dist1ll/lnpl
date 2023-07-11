@@ -369,11 +369,18 @@ impl<'a> Parser<'a> {
             // types that start with an identifier e.g. `Foo`
             Token::Ident => {
                 let sym = self.ast.symbols.intern(self.lexer.slice());
-                let ret = Type::Simple(sym);
-                // eat the type and whitespace
-                self.next_non_wspace();
-                // TODO(#3): handle generic types that start with ident
-                ret
+                // eat the type
+                match self.lexer.next() {
+                    Some(Token::ParensOpen) => Type::Generic(
+                        self.parse_expr(0).expect("type parameter"),
+                    ),
+                    // eat whitespace
+                    Some(Token::Whitespace) => {
+                        self.next_non_wspace();
+                        Type::Simple(sym)
+                    }
+                    _ => Type::Simple(sym),
+                }
             }
             // pointer type e.g. `*T`
             Token::Star => {
@@ -568,7 +575,6 @@ mod test {
             _ => panic!("expected let statement"),
         };
         assert_matches!(ty, Type::Ptr(_));
-        p.ast.pretty_print();
     }
     #[test]
     fn let_ascription_slice_basic() {
@@ -579,6 +585,32 @@ mod test {
             _ => panic!("expected let statement"),
         };
         assert_matches!(ty, Type::Slice(_));
+    }
+    #[test]
+    fn let_ascription_generic() {
+        let mut p = Parser::new("{ let x: Option(T) generate(); }");
+        p.parse();
+        let ty = match p.ast.stmts.get(StmtRef(0)).kind.to_owned() {
+            StmtKind::Let(_, ty, _) => ty.unwrap(),
+            _ => panic!("expected let statement"),
+        };
+        assert_matches!(ty, Type::Generic(_));
         p.ast.pretty_print();
+    }
+    #[test]
+    fn let_ascription_complex() {
+        let mut p = Parser::new("{ let x: *[]u32 generate(); }");
+        p.parse();
+        let ty = match p.ast.stmts.get(StmtRef(0)).kind.to_owned() {
+            StmtKind::Let(_, ty, _) => ty.unwrap(),
+            _ => panic!("expected let statement"),
+        };
+        match ty {
+            Type::Ptr(r) => match p.ast.types.get(r) {
+                Type::Slice(_) => (),
+                t => panic!("expected slice, found: {t:?}"),
+            },
+            t => panic!("expected ptr, found: {t:?}"),
+        }
     }
 }

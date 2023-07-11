@@ -32,6 +32,9 @@ pub enum Type {
     Ptr(TypeRef),
     /// A basic, single-dimensional slice type (e.g. `[]T`)
     Slice(TypeRef),
+    /// A generic type with a single type parameter (e.g. `T(K)`).
+    /// Type parameters can be types or staged expressions (const generics).
+    Generic(ExprRef),
 }
 
 #[derive(Debug, Clone)]
