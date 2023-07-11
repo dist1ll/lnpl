@@ -365,9 +365,13 @@ impl<'a> Parser<'a> {
                 let sym = self.ast.symbols.intern(self.lexer.slice());
                 // eat the type
                 match self.lexer.next() {
-                    Some(Token::ParensOpen) => Type::Generic(
-                        self.parse_expr(0).expect("type parameter"),
-                    ),
+                    Some(Token::ParensOpen) => {
+                        let args = self.parse_arguments();
+                        // eat `)` and following whitespace
+                        self.next_non_wspace();
+                        Type::Generic(args)
+
+                    }
                     // eat whitespace
                     Some(Token::Whitespace) => {
                         self.next_non_wspace();
@@ -582,7 +586,7 @@ mod test {
     }
     #[test]
     fn let_ascription_generic() {
-        let mut p = Parser::new("{ let x: Option(T) generate(); }");
+        let mut p = Parser::new("{ let x: Option(T, { 2 + 3}) generate(); }");
         p.parse();
         let ty = match p.ast.stmts.get(StmtRef(0)).kind.to_owned() {
             StmtKind::Let(_, ty, _) => ty.unwrap(),
@@ -593,7 +597,7 @@ mod test {
     }
     #[test]
     fn let_ascription_complex() {
-        let mut p = Parser::new("{ let x: *[]u32 generate(); }");
+        let mut p = Parser::new("{ let x: *[]slice(x, y) generate(); }");
         p.parse();
         let ty = match p.ast.stmts.get(StmtRef(0)).kind.to_owned() {
             StmtKind::Let(_, ty, _) => ty.unwrap(),
@@ -601,7 +605,10 @@ mod test {
         };
         match ty {
             Type::Ptr(r) => match p.ast.types.get(r) {
-                Type::Slice(_) => (),
+                Type::Slice(r) => match p.ast.types.get(*r) {
+                    Type::Generic(_) => (),
+                    t => panic!("expected generic, found: {t:?}"),
+                },
                 t => panic!("expected slice, found: {t:?}"),
             },
             t => panic!("expected ptr, found: {t:?}"),

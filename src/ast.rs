@@ -34,7 +34,7 @@ pub enum Type {
     Slice(TypeRef),
     /// A generic type with a single type parameter (e.g. `T(K)`).
     /// Type parameters can be types or staged expressions (const generics).
-    Generic(ExprRef),
+    Generic(Arguments),
 }
 
 #[derive(Debug, Clone)]
